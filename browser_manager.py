@@ -1,11 +1,15 @@
+import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys 
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException, StaleElementReferenceException
 from dotenv import load_dotenv
 import os
+import time
+
+logger = logging.getLogger(__name__)
 
 class BrowserManager:
     def __init__(self):
@@ -22,7 +26,7 @@ class BrowserManager:
 
         self.age = 0
 
-        self.wait = WebDriverWait(self.driver, 10)
+        self.wait = WebDriverWait(self.driver, 90)
 
     def login(self):
         username = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
@@ -31,23 +35,93 @@ class BrowserManager:
         while not username.get_attribute('value') and not password.get_attribute('value'):
             username.send_keys(self.USERNAME)
             password.send_keys(self.PASSWORD)
-    
-    def generate_prospect(self):
-        nuevo_prospecto = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Nuevo Prospecto")))
-        nuevo_prospecto.click()
-        nombre = self.wait.until(EC.presence_of_element_located((By.NAME, 'Nombre')))
-        apellido_paterno = self.wait.until(EC.presence_of_element_located((By.NAME, 'Paterno')))
-        masculino_button = self.wait.until(
-        EC.element_to_be_clickable((By.XPATH, '//input[@name="Sexo" and @value="1"]'))
-    )
-        edad= self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
-        
-        nombre.send_keys('Prospecto')
-        apellido_paterno.send_keys('Nuevo')
-        masculino_button.click()
-        edad.send_keys(self.age)
 
-    def quote(self):
-        cotizar_por_producto = self.wait.until(EC.element_to_be_clickable((By.ID, "cmdCotizarProducto")))
-        cotizar_por_producto.click()
         
+    
+    def create_initial_prospect(self):
+        new_prospect = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Nuevo Prospecto")))
+        new_prospect.click()
+        first_name = self.wait.until(EC.presence_of_element_located((By.NAME, 'Nombre')))
+        last_name = self.wait.until(EC.presence_of_element_located((By.NAME, 'Paterno')))
+        male_button = self.wait.until(
+            EC.element_to_be_clickable((By.XPATH, '//input[@name="Sexo" and @value="1"]'))
+        )
+
+        first_name.send_keys('Prospecto')
+        last_name.send_keys('Nuevo') 
+        male_button.click()
+
+    def set_age_start_quoting(self, age):
+        try:
+            logger.info(f"Setting age to {age}...")
+
+            try: 
+                # Wait for age input to appear
+                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
+            
+            except StaleElementReferenceException:
+                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
+            
+            age_input.clear()
+            age_input.send_keys(age)
+            logger.info(f"Successfully set age to {age}.")
+
+            # Wait for the quote button and click it
+            logger.info("Attempting to click 'Start Quoting' button...")
+            quote_button = self.wait.until(EC.element_to_be_clickable((By.ID, "cmdCotizarProducto")))
+            quote_button.click()
+            logger.info("Quoting process started.")
+        except TimeoutException:
+            logger.error("Timeout: Unable to locate 'Edad' input or 'cmdCotizarProducto' button.")
+            raise
+
+    def pop_up_handler(self):
+            # Create a shorter wait time for checking button presence
+            short_wait = WebDriverWait(self.driver, 3)
+            max_retries = 2  # Try a couple of times with short waits
+            
+            # Button selectors ordered by specificity
+            button_selectors = [
+                (By.CSS_SELECTOR, '.btn.btn-success[data-dismiss="modal"]'),
+                (By.XPATH, "//button[contains(@class, 'btn-success') and contains(text(), 'Aceptar')]"),
+                (By.XPATH, '//*[@id="modal"]/div/div/div[3]/button'),
+                (By.CSS_SELECTOR, '#modal button.btn-success')
+            ]
+            
+            for attempt in range(max_retries):
+                if attempt > 0:
+                    # Small delay between retries to allow popup to appear
+                    time.sleep(1)
+                    
+                try:
+                    for selector in button_selectors:
+                        try:
+                            button = short_wait.until(EC.presence_of_element_located(selector))
+                            if button.is_displayed():
+                                logger.info(f"Accept button found on attempt {attempt + 1}, attempting to click...")
+                                # Ensure element is in view
+                                self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                                
+                                # Try multiple click methods
+                                try:
+                                    button.click()
+                                except ElementNotInteractableException:
+                                    self.driver.execute_script("arguments[0].click();", button)
+                                
+                                # Quick check that the modal is gone
+                                short_wait.until(EC.invisibility_of_element((By.ID, 'modal')))
+                                logger.info("Modal handled successfully.")
+                                return
+                        except (TimeoutException, ElementNotInteractableException):
+                            continue
+                    
+                    if attempt == max_retries - 1:
+                        # Only log on final attempt
+                        logger.debug("No immediate popup requiring handling detected.")
+                        
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        # Only log on final attempt
+                        logger.debug(f"No popup handling needed: {str(e)}")
+            
+            return
