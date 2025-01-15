@@ -29,12 +29,58 @@ class BrowserManager:
         self.wait = WebDriverWait(self.driver, 90)
 
     def login(self):
-        username = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
-        password = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_Password')))
-
-        while not username.get_attribute('value') and not password.get_attribute('value'):
-            username.send_keys(self.USERNAME)
-            password.send_keys(self.PASSWORD)
+        max_attempts = 30  # Increased to allow for multiple captcha attempts
+        attempt = 0
+        login_successful = False
+        
+        while not login_successful and attempt < max_attempts:
+            try:
+                # First, wait for the page to be fully loaded after any refresh
+                self.wait.until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
+                
+                # Wait for login fields to be present again (in case of refresh)
+                username = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
+                password = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_Password')))
+                
+                current_username = username.get_attribute('value')
+                current_password = password.get_attribute('value')
+                
+                # If either field is empty, refill both
+                if not current_username or not current_password:
+                    logger.info("Login fields empty or page refreshed, refilling credentials...")
+                    
+                    # Wait a short moment for any page transitions to complete
+                    time.sleep(0.5)
+                    
+                    # Clear and fill username
+                    username.clear()
+                    username.send_keys(self.USERNAME)
+                    
+                    # Clear and fill password
+                    password.clear()
+                    password.send_keys(self.PASSWORD)
+                
+                # Check if we've successfully logged in
+                try:
+                    # Using a very short timeout for this check to make it responsive
+                    quick_wait = WebDriverWait(self.driver, 1)
+                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Nuevo Prospecto")))
+                    login_successful = True
+                    logger.info("Login successful!")
+                    return
+                except TimeoutException:
+                    # Not logged in yet, continue monitoring
+                    attempt += 1
+                    time.sleep(1)  # Brief pause before next check
+                    continue
+                    
+            except Exception as e:
+                attempt += 1
+                logger.warning(f"Attempt {attempt}: Handling login page state. {str(e)}")
+                time.sleep(1)  # Wait before retrying
+                
+        if not login_successful:
+            raise Exception("Login process timed out - please check the application state")
 
         
     

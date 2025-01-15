@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -53,114 +54,189 @@ class Quoter:
             logger.info("Modal no longer visible. Proceeding with the next step.")
 
     def quote_plan(self, age, plan, product):
-        logger.info(f"Quoting plan: {plan['name']} for age {age}")
-    
-        # Skip setting age for age == 0
-        if age != 0:
-            logger.debug("Setting age for quoting...")
-            self.browser_manager.set_age_start_quoting(age)
-            logger.debug(f"Age {age} set for quoting.")
-            self.access_product(product['product_identifier'])
-
-        try:
-            if plan['name'] in ["Pleno", "Integro"]:
-                logger.info(f"Setting plan-specific options for {plan['name']}.")
-
-                # Set Veracruz as the state of residence
-                logger.info("Selecting state of residence...")
-                residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlResidencia')))
-                residence.click()
-                residence_option = self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
-                )
-                residence_option.click()
-                logger.info("State of residence selected.")
-
-                self.browser_manager.pop_up_handler()
-                self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
-                logger.info("Modal no longer visible. Proceeding with the next step.")
-
-                # Set "Deducible" to 40,000
-                deductible = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlDeducible')))
-                deductible.click()
-                deductible_option = self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, '//*[@id="ddlDeducible"]/option[5]'))
-                )
-                deductible_option.click()
-                logger.info("Deductible set to 40,000.")
-
-                # Check "Deducible único" checkbox
-                unique_deductible = self.wait.until(EC.element_to_be_clickable((By.ID, 'chbDeducibleUnico')))
-                unique_deductible.click()
-                logger.info("Unique deductible checkbox checked.")
-
-                self.browser_manager.pop_up_handler()
-                self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
-                logger.info("Modal no longer visible. Proceeding with the next step.")
-
-                # Check coverage options "Asistencia en el Extranjero (CAE)" and "Eliminación de Deducible por Accidente (CEDA)"
-                cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl03$chkseleccion']")))
-                ceda = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
-                cae.click()
-                ceda.click()
-                logger.info("Coverage options checked.")
-
-                logger.info("Clicking 'Calculate' button...")
-                # Click "Calcular" button
-                calculate_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btnCalcular')))
-                calculate_button.click()
-                logger.info("Calculate button clicked.")
-
-                logger.info("Switching to 'Resultado' tab...")
-                # Switch to "Resultado" tab
-                result_tab = self.wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Resultado")))
-                result_tab.click()
-                logger.info("Switched to 'Resultado' tab.")
-
-                # Collect data
-                logger.info(f"Collecting data for plan: {plan['name']}")
-                data = self.collect_data()
-                logger.info(f"Data collected: {data}")
-
-                # Navigate back to the previous page
-                first_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'ctl00_ContentPlaceHolder1_btnRegresar')))
-                first_back_button.click()
-                second_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'RegresarDP')))
-                second_back_button.click()
-
-                return data or {}
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Quoting plan: {plan['name']} for age {age}")
             
-            elif plan['name'] in ["Flex A", "Flex B"]:
-                # Set Veracruz as the state of residence
-                logger.info("Selecting state of residence...")
-                residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ctl00_ContentPlaceHolder1_ddlResidencia')))
-                residence.click()
-                residence_option = self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
-                )
-                residence_option.click()
-                logger.info("State of residence selected.")
+                # Skip setting age for age == 0
+                if age != 0 and not (age == 71 and plan['name'] == 'Pleno'):
 
-                self.browser_manager.pop_up_handler()
-                self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
-                logger.info("Modal no longer visible. Proceeding with the next step.")
+                    logger.debug("Setting age for quoting...")
+                    try:
+                        self.browser_manager.set_age_start_quoting(age)
+                        logger.debug(f"Age {age} set for quoting.")
+                        self.access_product(product['product_identifier'])
+                    except Exception as e:
+                        logger.error(f"Error setting age or accessing product: {e}")
+                        # Try to refresh the page and retry
+                        self.browser_manager.driver.refresh()
+                        self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
+                        retry_count += 1
+                        continue
 
-                # Check coverage options "Asistencia en el Extranjero (CAE)" and "Cobertura Reducción Copago por Accidente (CRCPA)"
-                cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
-                crcpa = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
-                cae.click()
-                crcpa.click()
+                try:
+                    if plan['name'] in ["Pleno", "Integro"]:
+                        logger.info(f"Setting plan-specific options for {plan['name']}.")
 
-                logger.info(f"Collecting data for plan: {plan['name']}")
-                data = self.collect_data()
-                logger.info(f"Data collected: {data}")
+                        # Set Veracruz as the state of residence
+                        logger.info("Selecting state of residence...")
+                        residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlResidencia')))
+                        residence.click()
+                        residence_option = self.wait.until(
+                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
+                        )
+                        residence_option.click()
+                        logger.info("State of residence selected.")
 
+                        self.browser_manager.pop_up_handler()
+                        self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
+                        logger.info("Modal no longer visible. Proceeding with the next step.")
 
-                return data or {}
+                        # Set "Deducible" to 40,000
+                        deductible = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlDeducible')))
+                        deductible.click()
+                        deductible_option = self.wait.until(
+                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlDeducible"]/option[5]'))
+                        )
+                        deductible_option.click()
+                        logger.info("Deductible set to 40,000.")
 
-        except Exception as e:
-            logger.error(f"Error during quoting process for age {age} and plan {plan['name']}: {e}")
-            return {}
+                        # Check "Deducible único" checkbox
+                        unique_deductible = self.wait.until(EC.element_to_be_clickable((By.ID, 'chbDeducibleUnico')))
+                        unique_deductible.click()
+                        logger.info("Unique deductible checkbox checked.")
+
+                        self.browser_manager.pop_up_handler()
+                        self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
+                        logger.info("Modal no longer visible. Proceeding with the next step.")
+
+                        # Check coverage options "Asistencia en el Extranjero (CAE)" and "Eliminación de Deducible por Accidente (CEDA)"
+                        cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl03$chkseleccion']")))
+                        ceda = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
+                        cae.click()
+                        ceda.click()
+                        logger.info("Coverage options checked.")
+
+                        logger.info("Clicking 'Calculate' button...")
+                        # Click "Calcular" button
+                        calculate_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btnCalcular')))
+                        calculate_button.click()
+                        logger.info("Calculate button clicked.")
+
+                        logger.info("Switching to 'Resultado' tab...")
+                        # Switch to "Resultado" tab with retries
+                        tab_retries = 3
+                        for attempt in range(tab_retries):
+                            try:
+                                # First make sure any modal is gone
+                                self.browser_manager.pop_up_handler()
+                                result_tab = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Resultado")))
+                                result_tab.click()
+                                logger.info("Switched to 'Resultado' tab.")
+                                break
+                            except Exception as e:
+                                if attempt == tab_retries - 1:
+                                    raise
+                                logger.warning(f"Failed to switch to Resultado tab, attempt {attempt + 1}: {e}")
+                                time.sleep(1)
+
+                        # Collect data
+                        logger.info(f"Collecting data for plan: {plan['name']}")
+                        data = self.collect_data()
+                        logger.info(f"Data collected: {data}")
+
+                        # Navigate back to the previous page
+                        first_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'ctl00_ContentPlaceHolder1_btnRegresar')))
+                        first_back_button.click()
+                        second_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'RegresarDP')))
+                        second_back_button.click()
+
+                        return data or {}
+                        
+                    elif plan['name'] in ["Flex A", "Flex B"]:
+                        logger.info(f"Setting plan-specific options for {plan['name']}.")
+
+                        # Set Veracruz as the state of residence
+                        logger.info("Selecting state of residence...")
+                        residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ctl00_ContentPlaceHolder1_ddlResidencia')))
+                        residence.click()
+                        residence_option = self.wait.until(
+                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
+                        )
+                        residence_option.click()
+                        logger.info("State of residence selected.")
+
+                        self.browser_manager.pop_up_handler()
+                        self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
+                        logger.info("Modal no longer visible. Proceeding with the next step.")
+
+                        # Check coverage options "Asistencia en el Extranjero (CAE)" and "Cobertura Reducción Copago por Accidente (CRCPA)"
+                        cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
+                        crcpa = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
+                        cae.click()
+                        crcpa.click()
+
+                        logger.info("Clicking 'Calculate' button...")
+                        # Click "Calcular" button
+                        calculate_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btnCalcular')))
+                        calculate_button.click()
+                        logger.info("Calculate button clicked.")
+
+                        logger.info("Switching to 'Resultado' tab...")
+                        # Switch to "Resultado" tab with retries
+                        tab_retries = 3
+                        for attempt in range(tab_retries):
+                            try:
+                                # First make sure any modal is gone
+                                self.browser_manager.pop_up_handler()
+                                result_tab = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Resultado")))
+                                result_tab.click()
+                                logger.info("Switched to 'Resultado' tab.")
+                                break
+                            except Exception as e:
+                                if attempt == tab_retries - 1:
+                                    raise
+                                logger.warning(f"Failed to switch to Resultado tab, attempt {attempt + 1}: {e}")
+                                time.sleep(1)
+
+                        # Collect data
+                        logger.info(f"Collecting data for plan: {plan['name']}")
+                        data = self.collect_data()
+                        logger.info(f"Data collected: {data}")
+
+                        # Navigate back to the previous page
+                        first_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'ctl00_ContentPlaceHolder1_btnRegresar')))
+                        first_back_button.click()
+                        second_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'RegresarDP')))
+                        second_back_button.click()
+
+                        return data or {}
+
+                except Exception as e:
+                    logger.error(f"Error during plan quoting: {e}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        logger.info(f"Retrying quote_plan (attempt {retry_count + 1} of {max_retries})")
+                        # Refresh the page and try again
+                        self.browser_manager.driver.refresh()
+                        continue
+                    else:
+                        logger.error("Max retries reached, returning empty data")
+                        return {}
+
+            except Exception as e:
+                logger.error(f"Error during quoting process for age {age} and plan {plan['name']}: {e}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"Retrying entire quote_plan process (attempt {retry_count + 1} of {max_retries})")
+                    # Refresh the page and try again
+                    self.browser_manager.driver.refresh()
+                    continue
+                else:
+                    return {}
 
 
     def collect_data(self):

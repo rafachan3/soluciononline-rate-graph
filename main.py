@@ -4,6 +4,7 @@ from plan_quoter import Quoter
 from selenium.webdriver.common.by import By
 import logging
 from logging.handlers import RotatingFileHandler
+from database_handler import DatabaseHandler
 
 # Configure logging
 logging.basicConfig(
@@ -27,9 +28,10 @@ class MainController:
         logger.info("Initializing MainController...")
         self.browser_manager = browser_manager  # Use the shared BrowserManager instance
         self.quoter = Quoter(self.browser_manager)  # Pass it to Quoter
+        self.db_handler = DatabaseHandler()  # Initialize database handler
         self.browser_manager.login()  # Log in using the browser manager
         self.browser_manager.create_initial_prospect()
-        self.browser_manager.set_age_start_quoting(0)
+        self.browser_manager.set_age_start_quoting(71)
 
         self.products = [
             {
@@ -75,21 +77,21 @@ class MainController:
         dropdown_selector = (By.ID, "ddlPlan")
         self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
-        plan_data = []
-        for age in range(0, 76):
+        start_age = 71 if plan['name'] == 'Pleno' else 0
+
+        for age in range(start_age, 75):
             logger.debug(f"Quoting for age: {age}")
             data = self.quoter.quote_plan(age, plan, product)
-            plan_data.append({'Edad': age, **data})
+            # Store data in database
+            self.db_handler.insert_plan_data(plan['name'], age, data)
 
         logger.info(f"Saving data for plan: {plan['name']}")
-        self.plans_df[plan['name']] = pd.DataFrame(plan_data)
 
     def save_dataframes(self):
-        for plan_name, dataframe in self.plans_df.items():
-            filename = f"{plan_name.replace(' ', '_').lower()}_data.csv"
-            dataframe.to_csv(filename, index=False)
-            logger.info(f"Data for {plan_name} saved to {filename}")
-
+        # Export to Excel from database
+        output_file = self.db_handler.export_to_excel()
+        logger.info(f"All data exported to {output_file}")
+        
 if __name__ == '__main__':
     logger.info("Starting the application...")
     controller = MainController()
