@@ -61,22 +61,6 @@ class Quoter:
             try:
                 logger.info(f"Quoting plan: {plan['name']} for age {age}")
             
-                # Skip setting age for age == 0
-                if age != 0 and not (age == 71 and plan['name'] == 'Pleno'):
-
-                    logger.debug("Setting age for quoting...")
-                    try:
-                        self.browser_manager.set_age_start_quoting(age)
-                        logger.debug(f"Age {age} set for quoting.")
-                        self.access_product(product['product_identifier'])
-                    except Exception as e:
-                        logger.error(f"Error setting age or accessing product: {e}")
-                        # Try to refresh the page and retry
-                        self.browser_manager.driver.refresh()
-                        self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
-                        retry_count += 1
-                        continue
-
                 try:
                     if plan['name'] in ["Pleno", "Integro"]:
                         logger.info(f"Setting plan-specific options for {plan['name']}.")
@@ -220,7 +204,6 @@ class Quoter:
                     retry_count += 1
                     if retry_count < max_retries:
                         logger.info(f"Retrying quote_plan (attempt {retry_count + 1} of {max_retries})")
-                        # Refresh the page and try again
                         self.browser_manager.driver.refresh()
                         continue
                     else:
@@ -232,7 +215,6 @@ class Quoter:
                 retry_count += 1
                 if retry_count < max_retries:
                     logger.info(f"Retrying entire quote_plan process (attempt {retry_count + 1} of {max_retries})")
-                    # Refresh the page and try again
                     self.browser_manager.driver.refresh()
                     continue
                 else:

@@ -29,58 +29,65 @@ class BrowserManager:
         self.wait = WebDriverWait(self.driver, 90)
 
     def login(self):
-        max_attempts = 30  # Increased to allow for multiple captcha attempts
+        max_attempts = 30
         attempt = 0
-        login_successful = False
         
-        while not login_successful and attempt < max_attempts:
+        while attempt < max_attempts:
             try:
-                # First, wait for the page to be fully loaded after any refresh
+                # First check if we're already logged in by looking for the "Nuevo Prospecto" link
+                try:
+                    quick_wait = WebDriverWait(self.driver, 2)
+                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Nuevo Prospecto")))
+                    logger.info("Already logged in successfully!")
+                    return
+                except TimeoutException:
+                    # Not logged in yet, proceed with login process
+                    pass
+                
+                # Wait for the page to be fully loaded
                 self.wait.until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
                 
-                # Wait for login fields to be present again (in case of refresh)
-                username = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
-                password = self.wait.until(EC.presence_of_element_located((By.ID, 'Login1_Password')))
-                
-                current_username = username.get_attribute('value')
-                current_password = password.get_attribute('value')
-                
-                # If either field is empty, refill both
-                if not current_username or not current_password:
-                    logger.info("Login fields empty or page refreshed, refilling credentials...")
-                    
-                    # Wait a short moment for any page transitions to complete
-                    time.sleep(0.5)
-                    
-                    # Clear and fill username
-                    username.clear()
-                    username.send_keys(self.USERNAME)
-                    
-                    # Clear and fill password
-                    password.clear()
-                    password.send_keys(self.PASSWORD)
-                
-                # Check if we've successfully logged in
+                # Check if login form is present
                 try:
-                    # Using a very short timeout for this check to make it responsive
-                    quick_wait = WebDriverWait(self.driver, 1)
+                    quick_wait = WebDriverWait(self.driver, 2)
+                    username_field = quick_wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
+                    password_field = quick_wait.until(EC.presence_of_element_located((By.ID, 'Login1_Password')))
+                except TimeoutException:
+                    # If login form is not present and we're not logged in, something is wrong
+                    logger.warning("Neither login form nor logged-in state detected.")
+                    attempt += 1
+                    time.sleep(1)
+                    continue
+                
+                # Only fill credentials if fields are empty
+                if not username_field.get_attribute('value'):
+                    username_field.clear()
+                    username_field.send_keys(self.USERNAME)
+                
+                if not password_field.get_attribute('value'):
+                    password_field.clear()
+                    password_field.send_keys(self.PASSWORD)
+                
+                # Wait for successful login
+                time.sleep(1)  # Brief pause to allow for captcha verification
+                
+                # Check for successful login again
+                try:
+                    quick_wait = WebDriverWait(self.driver, 2)
                     quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Nuevo Prospecto")))
-                    login_successful = True
                     logger.info("Login successful!")
                     return
                 except TimeoutException:
                     # Not logged in yet, continue monitoring
                     attempt += 1
-                    time.sleep(1)  # Brief pause before next check
                     continue
                     
             except Exception as e:
                 attempt += 1
-                logger.warning(f"Attempt {attempt}: Handling login page state. {str(e)}")
-                time.sleep(1)  # Wait before retrying
-                
-        if not login_successful:
-            raise Exception("Login process timed out - please check the application state")
+                logger.warning(f"Attempt {attempt}: Login attempt failed. Error: {str(e)}")
+                time.sleep(1)
+        
+        raise Exception("Login process timed out - please check the application state")
 
         
     

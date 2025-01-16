@@ -30,8 +30,7 @@ class MainController:
         self.quoter = Quoter(self.browser_manager)  # Pass it to Quoter
         self.db_handler = DatabaseHandler()  # Initialize database handler
         self.browser_manager.login()  # Log in using the browser manager
-        self.browser_manager.create_initial_prospect()
-        self.browser_manager.set_age_start_quoting(71)
+        self.browser_manager.create_initial_prospect()  # Create initial prospect with defaults
 
         self.products = [
             {
@@ -56,6 +55,10 @@ class MainController:
 
     def run(self):
         logger.info("Starting the quoting process...")
+        # Set initial age to 0 and start quoting process
+        self.browser_manager.set_age_start_quoting(0)
+        logger.info("Initial age set and quote process started")
+        
         for product in self.products:
             logger.info(f"Processing product: {product['product']}")
             self.process_product_plans(product)
@@ -73,19 +76,32 @@ class MainController:
             self.process_plan(plan, product)
 
     def process_plan(self, plan, product):
+        logger.info(f"Processing plan: {plan['name']}")
+        
+        # Select the plan from dropdown
         logger.info(f"Selecting plan: {plan['name']}")
         dropdown_selector = (By.ID, "ddlPlan")
         self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
-        start_age = 71 if plan['name'] == 'Pleno' else 0
-
-        for age in range(start_age, 75):
+        # Process all ages for this plan
+        for age in range(0, 76):
             logger.debug(f"Quoting for age: {age}")
+            
+            # Quote and collect data for current age
             data = self.quoter.quote_plan(age, plan, product)
             # Store data in database
             self.db_handler.insert_plan_data(plan['name'], age, data)
+            
+            if age < 75:  # Don't set age after last iteration
+                # After collecting data, we're back at prospect screen
+                # Set next age and start quote process again
+                self.browser_manager.set_age_start_quoting(age + 1)
+                # Reaccess product after setting new age
+                self.quoter.access_product(product['product_identifier'])
+                # Reselect plan
+                self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
-        logger.info(f"Saving data for plan: {plan['name']}")
+        logger.info(f"Completed processing all ages for plan: {plan['name']}")
 
     def save_dataframes(self):
         # Export to Excel from database
