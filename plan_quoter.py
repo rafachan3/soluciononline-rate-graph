@@ -38,20 +38,38 @@ class Quoter:
         logger.info("Pop-up handled.")
 
     def select_plan_from_dropdown(self, dropdown_selector, plan_value):
-        if plan_value == "060001001213" or plan_value == "060001001217":
-            pass
-        else:
-            dropdown_menu = self.wait.until(EC.presence_of_element_located(dropdown_selector))
-            dropdown_menu.click()
-            plan_option = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, f'//option[@value="{plan_value}"]'))
-            )
-            plan_option.click()
+        if plan_value == "060001001213" or plan_value == "060001001219":
+            return
+            
+        # Create a quick wait with 2 second timeout
+        quick_wait = WebDriverWait(self.browser_manager.driver, 1)
+        logger.info("Attempting to locate plan dropdown...")
+        
+        try:
+            # Try the first selector with quick wait
+            dropdown_menu = quick_wait.until(EC.presence_of_element_located(dropdown_selector))
+        except TimeoutException:
+            # If first selector fails, try the alternative immediately
+            logger.info("Primary dropdown selector not found, trying alternative...")
+            alternative_selector = (By.ID, "ctl00_ContentPlaceHolder1_ddlPlan")
+            try:
+                dropdown_menu = quick_wait.until(EC.presence_of_element_located(alternative_selector))
+                logger.info("Alternative dropdown selector found successfully")
+            except TimeoutException:
+                logger.error("Both dropdown selectors failed")
+                raise
+        
+        # Once we have the dropdown, proceed with selection using normal wait times
+        dropdown_menu.click()
+        plan_option = self.wait.until(
+            EC.presence_of_element_located((By.XPATH, f'//option[@value="{plan_value}"]'))
+        )
+        plan_option.click()
 
-            self.browser_manager.pop_up_handler()
+        self.browser_manager.pop_up_handler()
 
-            self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
-            logger.info("Modal no longer visible. Proceeding with the next step.")
+        self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
+        logger.info("Modal no longer visible. Proceeding with the next step.")
 
     def quote_plan(self, age, plan, product):
         max_retries = 3
@@ -148,7 +166,7 @@ class Quoter:
                         residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ctl00_ContentPlaceHolder1_ddlResidencia')))
                         residence.click()
                         residence_option = self.wait.until(
-                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
+                            EC.presence_of_element_located((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_ddlResidencia"]/option[30]'))
                         )
                         residence_option.click()
                         logger.info("State of residence selected.")
@@ -158,8 +176,8 @@ class Quoter:
                         logger.info("Modal no longer visible. Proceeding with the next step.")
 
                         # Check coverage options "Asistencia en el Extranjero (CAE)" and "Cobertura Reducción Copago por Accidente (CRCPA)"
-                        cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
-                        crcpa = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
+                        cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl03_chkseleccion"]')))
+                        crcpa = self.wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl05_chkseleccion"]')))
                         cae.click()
                         crcpa.click()
 

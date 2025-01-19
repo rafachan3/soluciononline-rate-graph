@@ -45,8 +45,8 @@ class MainController:
                 'product': 'Alfa Medical Flex',
                 'product_identifier': (By.ID, '72'),
                 'plans': [
-                    {'name': 'Flex A', 'value': '060001001217'},
-                    {'name': 'Flex B', 'value': '060001001219'}
+                    {'name': 'Flex A', 'value': '060001001219'},
+                    {'name': 'Flex B', 'value': '060001001217'}
                 ]
             }
         ]
@@ -55,12 +55,8 @@ class MainController:
 
     def run(self):
         logger.info("Starting the quoting process...")
-        # Set initial age to 0 and start quoting process
-        self.browser_manager.set_age_start_quoting(0)
-        logger.info("Initial age set and quote process started")
         
         for product in self.products:
-            logger.info(f"Processing product: {product['product']}")
             self.process_product_plans(product)
 
         logger.info("Saving dataframes...")
@@ -68,12 +64,19 @@ class MainController:
         logger.info("Quoting process completed.")
 
     def process_product_plans(self, product):
+        logger.info(f"Processing product: {product['product']}")
+
+        # Reset age to 0 and start quote process before accessing new product
+        logger.info("Setting age to 0 before processing new product...")
+        self.browser_manager.set_age_start_quoting(0)
+
         logger.info(f"Accessing product: {product['product']}")
         self.quoter.access_product(product['product_identifier'])
 
         for plan in product['plans']:
-            logger.info(f"Processing plan: {plan['name']}")
             self.process_plan(plan, product)
+        
+        logger.info(f"Completed processing all plans for product: {product['product']}")
 
     def process_plan(self, plan, product):
         logger.info(f"Processing plan: {plan['name']}")
@@ -92,9 +95,9 @@ class MainController:
             # Store data in database
             self.db_handler.insert_plan_data(plan['name'], age, data)
             
-            if age < 75:  # Don't set age after last iteration
-                # After collecting data, we're back at prospect screen
-                # Set next age and start quote process again
+            if age < 75:  # Don't set age after the last iteration because there are no more ages to process
+                # After collecting data, we're back at the prospect screen, which is necessary to reset the state and prepare for the next age or plan.
+                # Set the next age and start the quote process again to collect data incrementally for each age
                 self.browser_manager.set_age_start_quoting(age + 1)
                 # Reaccess product after setting new age
                 self.quoter.access_product(product['product_identifier'])
@@ -102,6 +105,13 @@ class MainController:
                 self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
         logger.info(f"Completed processing all ages for plan: {plan['name']}")
+
+         # If this isn't the last plan, reset age to 0 and start quote process for next plan
+        if plan != product['plans'][-1]:
+            logger.info("Resetting age to 0 before processing next plan...")
+            self.browser_manager.set_age_start_quoting(0)
+            # Reaccess product after resetting age
+            self.quoter.access_product(product['product_identifier'])
 
     def save_dataframes(self):
         # Export to Excel from database
