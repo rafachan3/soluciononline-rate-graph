@@ -1,3 +1,4 @@
+from config import PRODUCTS, ELEMENT_IDS, AGE_RANGE
 import pandas as pd
 from browser_manager import BrowserManager
 from plan_quoter import Quoter
@@ -32,26 +33,7 @@ class MainController:
         self.browser_manager.login()  # Log in using the browser manager
         self.browser_manager.create_initial_prospect()  # Create initial prospect with defaults
 
-        self.products = [
-            {
-                'product': 'Alfa Medical',
-                'product_identifier': (By.ID, '60'),
-                'plans': [
-                    {'name': 'Pleno', 'value': '060001001213'},
-                    {'name': 'Integro', 'value': '060001001214'}
-                ]
-            },
-            {
-                'product': 'Alfa Medical Flex',
-                'product_identifier': (By.ID, '72'),
-                'plans': [
-                    {'name': 'Flex A', 'value': '060001001219'},
-                    {'name': 'Flex B', 'value': '060001001217'}
-                ]
-            }
-        ]
-
-        self.plans_df = {}
+        self.products = PRODUCTS
 
     def run(self):
         logger.info("Starting the quoting process...")
@@ -83,11 +65,11 @@ class MainController:
         
         # Select the plan from dropdown
         logger.info(f"Selecting plan: {plan['name']}")
-        dropdown_selector = (By.ID, "ddlPlan")
+        dropdown_selector = (By.ID, ELEMENT_IDS['plan']['plan_dropdown'])
         self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
         # Process all ages for this plan
-        for age in range(0, 76):
+        for age in range(AGE_RANGE['min_age'], AGE_RANGE['max_age'] + 1):
             logger.debug(f"Quoting for age: {age}")
             
             # Quote and collect data for current age
@@ -95,7 +77,7 @@ class MainController:
             # Store data in database
             self.db_handler.insert_plan_data(plan['name'], age, data)
             
-            if age < 75:  # Don't set age after the last iteration because there are no more ages to process
+            if age < AGE_RANGE['max_age']:  # Don't set age after the last iteration because there are no more ages to process
                 # After collecting data, we're back at the prospect screen, which is necessary to reset the state and prepare for the next age or plan.
                 # Set the next age and start the quote process again to collect data incrementally for each age
                 self.browser_manager.set_age_start_quoting(age + 1)

@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException
+from config import ELEMENT_IDS, PLAN_CONFIG, RETRY_CONFIG
 import time
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class Quoter:
             return
             
         # Create a quick wait with 2 second timeout
-        quick_wait = WebDriverWait(self.browser_manager.driver, 1)
+        quick_wait = WebDriverWait(self.browser_manager.driver, RETRY_CONFIG['short_wait_time'])
         logger.info("Attempting to locate plan dropdown...")
         
         try:
@@ -72,7 +73,8 @@ class Quoter:
         logger.info("Modal no longer visible. Proceeding with the next step.")
 
     def quote_plan(self, age, plan, product):
-        max_retries = 3
+        max_retries = RETRY_CONFIG['max_quote_retries']
+        tab_retries = RETRY_CONFIG['max_tab_retries']
         retry_count = 0
         
         while retry_count < max_retries:
@@ -80,15 +82,17 @@ class Quoter:
                 logger.info(f"Quoting plan: {plan['name']} for age {age}")
             
                 try:
-                    if plan['name'] in ["Pleno", "Integro"]:
+                    if plan['name'] in PLAN_CONFIG['standard_plans']:
                         logger.info(f"Setting plan-specific options for {plan['name']}.")
 
                         # Set Veracruz as the state of residence
-                        logger.info("Selecting state of residence...")
-                        residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlResidencia')))
+                        logger.info(f"Selecting state of residence ({PLAN_CONFIG['default_state']})...")
+                        residence = self.wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['plan']['residence_dropdown']['standard'])
+                                                                                   ))
                         residence.click()
                         residence_option = self.wait.until(
-                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlResidencia"]/option[30]'))
+                            EC.presence_of_element_located((By.XPATH, f'//*[@id="ddlResidencia"]/option[{PLAN_CONFIG['state_option_index']}]'
+                                                            ))
                         )
                         residence_option.click()
                         logger.info("State of residence selected.")
@@ -98,16 +102,16 @@ class Quoter:
                         logger.info("Modal no longer visible. Proceeding with the next step.")
 
                         # Set "Deducible" to 40,000
-                        deductible = self.wait.until(EC.presence_of_element_located((By.ID, 'ddlDeducible')))
+                        deductible = self.wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['plan']['deductible_dropdown'])))
                         deductible.click()
                         deductible_option = self.wait.until(
-                            EC.presence_of_element_located((By.XPATH, '//*[@id="ddlDeducible"]/option[5]'))
+                            EC.presence_of_element_located((By.XPATH, f'//*[@id="ddlDeducible"]/option[{PLAN_CONFIG["deductible_option_index"]}]'))
                         )
                         deductible_option.click()
                         logger.info("Deductible set to 40,000.")
 
                         # Check "Deducible único" checkbox
-                        unique_deductible = self.wait.until(EC.element_to_be_clickable((By.ID, 'chbDeducibleUnico')))
+                        unique_deductible = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['unique_deductible'])))
                         unique_deductible.click()
                         logger.info("Unique deductible checkbox checked.")
 
@@ -124,18 +128,17 @@ class Quoter:
 
                         logger.info("Clicking 'Calculate' button...")
                         # Click "Calcular" button
-                        calculate_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btnCalcular')))
+                        calculate_button = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['calculate_button'])))
                         calculate_button.click()
                         logger.info("Calculate button clicked.")
 
                         logger.info("Switching to 'Resultado' tab...")
                         # Switch to "Resultado" tab with retries
-                        tab_retries = 3
                         for attempt in range(tab_retries):
                             try:
                                 # First make sure any modal is gone
                                 self.browser_manager.pop_up_handler()
-                                result_tab = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Resultado")))
+                                result_tab = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, ELEMENT_IDS['plan']['result_tab'])))
                                 result_tab.click()
                                 logger.info("Switched to 'Resultado' tab.")
                                 break
@@ -151,22 +154,23 @@ class Quoter:
                         logger.info(f"Data collected: {data}")
 
                         # Navigate back to the previous page
-                        first_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'ctl00_ContentPlaceHolder1_btnRegresar')))
+                        first_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['back_button_1'])))
                         first_back_button.click()
-                        second_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'RegresarDP')))
+                        second_back_button = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['back_button_2'])))
                         second_back_button.click()
 
                         return data or {}
                         
-                    elif plan['name'] in ["Flex A", "Flex B"]:
+                    elif plan['name'] in PLAN_CONFIG['flex_plans']:
                         logger.info(f"Setting plan-specific options for {plan['name']}.")
 
                         # Set Veracruz as the state of residence
-                        logger.info("Selecting state of residence...")
-                        residence = self.wait.until(EC.presence_of_element_located((By.ID, 'ctl00_ContentPlaceHolder1_ddlResidencia')))
+                        logger.info(f"Selecting state of residence ({PLAN_CONFIG['default_state']})...")
+                        residence = self.wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['plan']['residence_dropdown']['flex'])
+                                                                                   ))
                         residence.click()
                         residence_option = self.wait.until(
-                            EC.presence_of_element_located((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_ddlResidencia"]/option[30]'))
+                            EC.presence_of_element_located((By.XPATH, f'//*[@id="ctl00_ContentPlaceHolder1_ddlResidencia"]/option[{PLAN_CONFIG["state_option_index"]}]'))
                         )
                         residence_option.click()
                         logger.info("State of residence selected.")
@@ -189,7 +193,6 @@ class Quoter:
 
                         logger.info("Switching to 'Resultado' tab...")
                         # Switch to "Resultado" tab with retries
-                        tab_retries = 3
                         for attempt in range(tab_retries):
                             try:
                                 # First make sure any modal is gone

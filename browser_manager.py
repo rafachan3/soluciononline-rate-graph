@@ -5,6 +5,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException, StaleElementReferenceException
+from config import ELEMENT_IDS, BASE_URL, RETRY_CONFIG
 from dotenv import load_dotenv
 import os
 import time
@@ -19,25 +20,25 @@ class BrowserManager:
         chrome_options.add_experimental_option("detach", True)
 
         self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.get('https://www.solucionlinemonterrey.mx/CotizadorWebApp/Forms/Firma.aspx')
+        self.driver.get(BASE_URL)
 
         self.USERNAME = os.getenv('SOLUCIONONLINE_USERNAME')
         self.PASSWORD = os.getenv('SOLUCIONONLINE_PASSWORD')
 
         self.age = 0
 
-        self.wait = WebDriverWait(self.driver, 90)
+        self.wait = WebDriverWait(self.driver, RETRY_CONFIG['wait_time'] )
 
     def login(self):
-        max_attempts = 30
-        attempt = 0
+        max_attempts = RETRY_CONFIG['max_login_attempts']
+        attempt = RETRY_CONFIG['max_quote_retries']
         
         while attempt < max_attempts:
             try:
                 # First check if we're already logged in by looking for the "Nuevo Prospecto" link
                 try:
-                    quick_wait = WebDriverWait(self.driver, 2)
-                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Nuevo Prospecto")))
+                    quick_wait = WebDriverWait(self.driver, RETRY_CONFIG['short_wait_time'])
+                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, ELEMENT_IDS['login']['new_prospect'])))
                     logger.info("Already logged in successfully!")
                     return
                 except TimeoutException:
@@ -49,9 +50,9 @@ class BrowserManager:
                 
                 # Check if login form is present
                 try:
-                    quick_wait = WebDriverWait(self.driver, 2)
-                    username_field = quick_wait.until(EC.presence_of_element_located((By.ID, 'Login1_UserName')))
-                    password_field = quick_wait.until(EC.presence_of_element_located((By.ID, 'Login1_Password')))
+                    quick_wait = WebDriverWait(self.driver, RETRY_CONFIG['short_wait_time'])
+                    username_field = quick_wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['login']['username'])))
+                    password_field = quick_wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['login']['password'])))
                 except TimeoutException:
                     # If login form is not present and we're not logged in, something is wrong
                     logger.warning("Neither login form nor logged-in state detected.")
@@ -73,8 +74,8 @@ class BrowserManager:
                 
                 # Check for successful login again
                 try:
-                    quick_wait = WebDriverWait(self.driver, 2)
-                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Nuevo Prospecto")))
+                    quick_wait = WebDriverWait(self.driver, RETRY_CONFIG['short_wait_time'])
+                    quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, ELEMENT_IDS['login']['new_prospect'])))
                     logger.info("Login successful!")
                     return
                 except TimeoutException:
@@ -92,12 +93,12 @@ class BrowserManager:
         
     
     def create_initial_prospect(self):
-        new_prospect = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Nuevo Prospecto")))
+        new_prospect = self.wait.until(EC.element_to_be_clickable((By.LINK_TEXT, ELEMENT_IDS['login']['new_prospect'])))
         new_prospect.click()
-        first_name = self.wait.until(EC.presence_of_element_located((By.NAME, 'Nombre')))
-        last_name = self.wait.until(EC.presence_of_element_located((By.NAME, 'Paterno')))
+        first_name = self.wait.until(EC.presence_of_element_located((By.NAME, ELEMENT_IDS['prospect']['first_name'])))
+        last_name = self.wait.until(EC.presence_of_element_located((By.NAME, ELEMENT_IDS['prospect']['last_name'])))
         male_button = self.wait.until(
-            EC.element_to_be_clickable((By.XPATH, '//input[@name="Sexo" and @value="1"]'))
+            EC.element_to_be_clickable((By.XPATH, ELEMENT_IDS['prospect']['gender_male']))
         )
 
         first_name.send_keys('Prospecto')
@@ -110,10 +111,10 @@ class BrowserManager:
 
             try: 
                 # Wait for age input to appear
-                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
+                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, ELEMENT_IDS['prospect']['age'])))
             
             except StaleElementReferenceException:
-                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, 'Edad')))
+                age_input = self.wait.until(EC.presence_of_element_located((By.NAME, ELEMENT_IDS['prospect']['age'])))
             
             age_input.clear()
             age_input.send_keys(age)
@@ -121,7 +122,7 @@ class BrowserManager:
 
             # Wait for the quote button and click it
             logger.info("Attempting to click 'Start Quoting' button...")
-            quote_button = self.wait.until(EC.element_to_be_clickable((By.ID, "cmdCotizarProducto")))
+            quote_button = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['prospect']['quote_button'])))
             quote_button.click()
             logger.info("Quoting process started.")
         except TimeoutException:
@@ -130,7 +131,7 @@ class BrowserManager:
 
     def pop_up_handler(self):
             # Create a shorter wait time for checking button presence
-            short_wait = WebDriverWait(self.driver, 3)
+            short_wait = WebDriverWait(self.driver, RETRY_CONFIG['short_wait_time'])
             max_retries = 2  # Try a couple of times with short waits
             
             # Button selectors ordered by specificity

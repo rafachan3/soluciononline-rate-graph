@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime
 import pandas as pd
+from config import DB_CONFIG
 
 class DatabaseHandler:
     def __init__(self, db_name='insurance_data.db'):
@@ -77,7 +78,7 @@ class DatabaseHandler:
         conn.close()
         return data
 
-    def export_to_excel(self, filename='insurance_data_export.xlsx'):
+    def export_to_excel(self, filename=DB_CONFIG['default_export_filename']):
         conn = sqlite3.connect(self.db_name)
         
         # Get unique plan names
