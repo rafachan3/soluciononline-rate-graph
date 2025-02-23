@@ -17,7 +17,7 @@ ELEMENT_IDS = {
     'plan': {
         'plan_dropdown': 'ddlPlan',
         'residence_dropdown': {
-            'standard': 'ddlResidencia',
+            'alfa_medical': 'ddlResidencia',
             'flex': 'ctl00_ContentPlaceHolder1_ddlResidencia'
         },
         'deductible_dropdown': 'ddlDeducible',
@@ -63,7 +63,7 @@ PRODUCTS = [
 
 # Plan Specific Configuration
 PLAN_CONFIG = {
-    'standard_plans': ["Pleno", "Integro"],
+    'alfa_medical_plans': ["Pleno", "Integro"],
     'flex_plans': ["Flex A", "Flex B"],
     'default_state': 'Veracruz',
     'state_option_index': 30,
@@ -79,5 +79,5 @@ DB_CONFIG = {
 # Age Range Configuration
 AGE_RANGE = {
     'min_age': 0,
-    'max_age': 0
+    'max_age': 75
 }

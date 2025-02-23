@@ -4,6 +4,7 @@ from browser_manager import BrowserManager
 from plan_quoter import Quoter
 from selenium.webdriver.common.by import By
 import logging
+from exceptions import QuoterError, PlanSelectionError, DataCollectionError, NavigationError, ElementInteractionError
 from logging.handlers import RotatingFileHandler
 from database_handler import DatabaseHandler
 
@@ -62,29 +63,37 @@ class MainController:
 
     def process_plan(self, plan, product):
         logger.info(f"Processing plan: {plan['name']}")
-        
-        # Select the plan from dropdown
-        logger.info(f"Selecting plan: {plan['name']}")
-        dropdown_selector = (By.ID, ELEMENT_IDS['plan']['plan_dropdown'])
-        self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
 
-        # Process all ages for this plan
-        for age in range(AGE_RANGE['min_age'], AGE_RANGE['max_age'] + 1):
-            logger.debug(f"Quoting for age: {age}")
-            
-            # Quote and collect data for current age
-            data = self.quoter.quote_plan(age, plan, product)
-            # Store data in database
-            self.db_handler.insert_plan_data(plan['name'], age, data)
-            
-            if age < AGE_RANGE['max_age']:  # Don't set age after the last iteration because there are no more ages to process
-                # After collecting data, we're back at the prospect screen, which is necessary to reset the state and prepare for the next age or plan.
-                # Set the next age and start the quote process again to collect data incrementally for each age
-                self.browser_manager.set_age_start_quoting(age + 1)
-                # Reaccess product after setting new age
-                self.quoter.access_product(product['product_identifier'])
-                # Reselect plan
-                self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
+        try:
+        
+            # Select the plan from dropdown
+            logger.info(f"Selecting plan: {plan['name']}")
+            dropdown_selector = (By.ID, ELEMENT_IDS['plan']['plan_dropdown'])
+            self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
+
+            # Process all ages for this plan
+            for age in range(AGE_RANGE['min_age'], AGE_RANGE['max_age'] + 1):
+                logger.debug(f"Quoting for age: {age}")
+                try: 
+                    # Quote and collect data for current age
+                    data = self.quoter.quote_plan(age, plan, product)
+                    # Store data in database
+                    self.db_handler.insert_plan_data(plan['name'], age, data)
+
+                    if data:  # Only store if we got valid data
+                        self.db_handler.insert_plan_data(plan['name'], age, data)
+                    else:
+                        logger.warning(f"No data collected for {plan['name']} at age {age}")
+                
+                    if age < AGE_RANGE['max_age']:
+                        self._prepare_next_age(age, product, dropdown_selector, plan)
+
+                except QuoterError as e:
+                    logger.error(f"Failed to process age {age} for plan {plan['name']}: {str(e)}")
+                    continue  # Skip to next age if there's an error
+                
+        except Exception as e:
+            logger.error(f"Failed to process plan {plan['name']}: {str(e)}")
 
         logger.info(f"Completed processing all ages for plan: {plan['name']}")
 
@@ -94,6 +103,31 @@ class MainController:
             self.browser_manager.set_age_start_quoting(0)
             # Reaccess product after resetting age
             self.quoter.access_product(product['product_identifier'])
+
+    def _prepare_next_age(self, age, product, dropdown_selector, plan):
+        """Prepares the system for processing the next age by resetting the necessary states.
+        
+        Args:
+            age (int): Current age being processed
+            product (dict): Product information dictionary
+            dropdown_selector (tuple): Selector tuple for the plan dropdown
+            plan (dict): Plan information dictionary
+        """
+        logger.info(f"Setting up for next age: {age + 1}")
+        
+        try:
+            # Set the next age and start quote process
+            self.browser_manager.set_age_start_quoting(age + 1)
+            
+            # Reaccess product after setting new age
+            self.quoter.access_product(product['product_identifier'])
+            
+            # Reselect plan
+            self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
+            
+        except Exception as e:
+            logger.error(f"Failed to prepare for next age: {str(e)}")
+            raise NavigationError(f"Could not set up for age {age + 1}") from e
 
     def save_dataframes(self):
         # Export to Excel from database
