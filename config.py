@@ -79,5 +79,29 @@ DB_CONFIG = {
 # Age Range Configuration
 AGE_RANGE = {
     'min_age': 0,
-    'max_age': 75
+    'max_age': 1
+}
+
+# Plan's Coverage Options Configuration
+COVERAGE_OPTIONS = {
+    'alfa_medical': {
+        'cae': {
+            'xpath': "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl03$chkseleccion']",
+            'description': "Asistencia en el Extranjero (CAE)"
+        },
+        'ceda': {
+            'xpath': "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']",
+            'description': "Eliminación de Deducible por Accidente (CEDA)"
+        }
+    },
+    'flex': {
+        'cae': {
+            'xpath': '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl03_chkseleccion"]',
+            'description': "Asistencia en el Extranjero (CAE)"
+        },
+        'crcpa': {
+            'xpath': '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl05_chkseleccion"]',
+            'description': "Cobertura Reducción Copago por Accidente (CRCPA)"
+        }
+    }
 }

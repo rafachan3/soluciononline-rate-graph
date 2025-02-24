@@ -77,8 +77,6 @@ class MainController:
                 try: 
                     # Quote and collect data for current age
                     data = self.quoter.quote_plan(age, plan, product)
-                    # Store data in database
-                    self.db_handler.insert_plan_data(plan['name'], age, data)
 
                     if data:  # Only store if we got valid data
                         self.db_handler.insert_plan_data(plan['name'], age, data)
@@ -91,7 +89,7 @@ class MainController:
                 except QuoterError as e:
                     logger.error(f"Failed to process age {age} for plan {plan['name']}: {str(e)}")
                     continue  # Skip to next age if there's an error
-                
+
         except Exception as e:
             logger.error(f"Failed to process plan {plan['name']}: {str(e)}")
 

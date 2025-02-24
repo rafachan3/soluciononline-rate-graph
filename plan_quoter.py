@@ -3,9 +3,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException
-from config import ELEMENT_IDS, PLAN_CONFIG, RETRY_CONFIG
+from config import ELEMENT_IDS, PLAN_CONFIG, RETRY_CONFIG, COVERAGE_OPTIONS
 from exceptions import QuoterError, PlanSelectionError, DataCollectionError, NavigationError, ElementInteractionError
 import time
+from data_collector import DataCollector
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ class Quoter:
     def __init__(self, browser_manager):
         self.browser_manager = browser_manager  # Assign the passed instance
         self.wait = browser_manager.wait       # Reuse WebDriverWait from BrowserManager
+        self.data_collector = DataCollector(self.wait)  # Initialize DataCollector
         self.data = []                         # Initialize other data attributes if needed
 
     def access_product(self, product_identifier):
@@ -230,31 +232,34 @@ class Quoter:
             raise ElementInteractionError(f"Failed to check 'Deducible único' checkbox: {str(e)}")
         
     def _set_coverage_options_pleno_integro(self):
-        """Check coverage options "Asistencia en el Extranjero (CAE)" and "Eliminación de Deducible por Accidente (CEDA)"""
+        """Set coverage options for Alfa Medical plans using config"""
         try:
             logger.info("Setting coverage options for Alfa Medical plans")
             
-            # Locate and click checkboxes
-            cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl03$chkseleccion']")))
-            ceda = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='ctl00$ContentPlaceHolder1$grvCoberturas$ctl05$chkseleccion']")))
-            cae.click()
-            ceda.click()
-            logger.info("Coverage options set successfully")
-            
+            for option_key, option_data in COVERAGE_OPTIONS['alfa_medical'].items():
+                checkbox = self.wait.until(EC.element_to_be_clickable(
+                    (By.XPATH, option_data['xpath'])
+                ))
+                checkbox.click()
+                logger.info(f"Set {option_data['description']}")
+                
         except Exception as e:
             raise ElementInteractionError(f"Failed to set coverage options for Alfa Medical plans: {str(e)}")
         
     def _set_coverage_options_flex(self):
-        """Check coverage options "Asistencia en el Extranjero (CAE)" and "Cobertura Reducción Copago por Accidente (CRCPA)"""
+        """Set coverage options for Flex plans using config"""
         try:
             logger.info("Setting coverage options for Alfa Medical Flex plans")
             
-            # Locate and click checkboxes
-            cae = self.wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl03_chkseleccion"]')))
-            crcpa = self.wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="ctl00_ContentPlaceHolder1_grvCoberturas_ctl05_chkseleccion"]')))
-            cae.click()
-            crcpa.click()
-            logger.info("Coverage options set successfully")
+            for option_key, option_data in COVERAGE_OPTIONS['flex'].items():
+                checkbox = self.wait.until(EC.element_to_be_clickable(
+                    (By.XPATH, option_data['xpath'])
+                ))
+                checkbox.click()
+                logger.info(f"Set {option_data['description']}")
+                
+        except Exception as e:
+            raise ElementInteractionError(f"Failed to set coverage options for Alfa Medical Flex plans: {str(e)}")
             
         except Exception as e:
             raise ElementInteractionError(f"Failed to set coverage options for Alfa Medical Flex plans: {str(e)}")
@@ -279,32 +284,59 @@ class Quoter:
             calculate_button.click()
             logger.info("Calculate button clicked.")
             
-            # Switch to Results tab
-            tab_retries = RETRY_CONFIG['max_tab_retries']
-            for attempt in range(tab_retries):
-                try:
-                    self.browser_manager.pop_up_handler()
-                    result_tab = self.wait.until(EC.element_to_be_clickable(
-                        (By.LINK_TEXT, ELEMENT_IDS['plan']['result_tab'])
-                        ))
-                    result_tab.click()
-                    logger.info("Switched to 'Resultado' tab.")
-                    break
-                except Exception as e:
-                    if attempt == tab_retries - 1:
-                        raise
-                    logger.warning(f"Failed to switch to Resultado tab, attempt {attempt + 1}: {e}")
-                    time.sleep(1)
+            # Switch to results tab using dedicated method
+            self._switch_to_results_tab()
                     
             # Collect and return data
             logger.info(f"Collecting data for plan: {plan['name']}")
-            data = self.collect_data()
+            data = self.data_collector.collect_all_data()
             logger.info(f"Data collected: {data}")
             
             return data or {}
             
         except Exception as e:
             raise DataCollectionError(f"Failed to calculate and collect data: {str(e)}")
+        
+    def _switch_to_results_tab(self):
+        """Switch to the Results tab with retry logic and popup handling.
+        
+        This method attempts to switch to the 'Resultado' tab multiple times if needed,
+        handling any popups that appear during the process.
+        
+        Raises:
+            NavigationError: If unable to switch to the Results tab after all retries
+        """
+        tab_retries = RETRY_CONFIG['max_tab_retries']
+        
+        for attempt in range(tab_retries):
+            try:
+                # Handle any popups that might be blocking the tab
+                self.browser_manager.pop_up_handler()
+                
+                # Wait for the Results tab to be clickable
+                result_tab = self.wait.until(
+                    EC.element_to_be_clickable((By.LINK_TEXT, ELEMENT_IDS['plan']['result_tab']))
+                )
+                
+                # Try to click the tab
+                result_tab.click()
+                logger.info("Successfully switched to 'Resultado' tab")
+                
+                # Verify we actually switched tabs by checking for a unique element
+                self.wait.until(
+                    EC.presence_of_element_located((By.ID, 'ctl00_ContentPlaceHolder1_txbSumaAsegurada'))
+                )
+                
+                return  # Success - exit the method
+                
+            except Exception as e:
+                if attempt == tab_retries - 1:
+                    # If this was our last attempt, raise the error
+                    logger.error(f"Failed to switch to Results tab after {tab_retries} attempts")
+                    raise NavigationError(f"Could not switch to Results tab: {str(e)}") from e
+                
+                logger.warning(f"Failed to switch to Results tab, attempt {attempt + 1} of {tab_retries}: {str(e)}")
+                time.sleep(1)  # Short pause before retrying
     
     def _navigate_back_to_start(self):
         """Navigate back to the starting page using the two back buttons"""
@@ -323,75 +355,3 @@ class Quoter:
             
         except Exception as e:
             raise NavigationError("Failed to navigate back to start") from e
-
-    def collect_data(self):
-        logger.debug("Collecting data fields...")
-        data = {
-        'Suma asegurada': self.insured_sum(),
-        'Prima básica anual': self.annual_basic_premium(),
-        'Prima de beneficios adicionales anual': self.annual_a_benefits_premium(),
-        'Derecho de póliza': self.policy_fee(),
-        'IVA': self.vat(),
-        'Prima neta anual': self.annual_net_premium(),
-        'Primer Pago': self.first_payment()
-    }
-        logger.info("All data fields collected successfully.")
-        return data
-
-    def _get_field_value(self, field_id):
-        """Get value from a field by its ID.
-        
-        Args:
-            field_id (str): The ID of the field to get value from
-                
-        Returns:
-            str: The value of the field
-            
-        Raises:
-            ElementInteractionError: If the field cannot be found or accessed
-        """
-        try:
-            element = self.wait.until(EC.presence_of_element_located((By.ID, field_id)))
-            value = element.get_attribute('value')
-        
-            if value is None:
-                raise ElementInteractionError(f"No value found for field {field_id}")
-                
-            return value
-        
-        except Exception as e:
-            raise ElementInteractionError(f"Failed to get value for field {field_id}: {str(e)}")
-
-
-    # Suma asegurada
-    def insured_sum(self):
-        """Get the insured sum (suma asegurada) value
-    
-        Returns:
-            str: The insured sum value
-        """
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbSumaAsegurada')
-    
-    # Prima básica anual
-    def annual_basic_premium(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbPrimaBasicaAnual')
-
-    # Prima de beneficios adicionales anual
-    def annual_a_benefits_premium(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbPrimaBeneficiosA')
-
-    # Derecho de póliza
-    def policy_fee(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbDerechoDePoliza')
-
-    # IVA
-    def vat(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbIva')
-
-    # Prima neta anual
-    def annual_net_premium(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbPrimaNetaAnual')
-
-    # Primer Pago
-    def first_payment(self):
-        return self._get_field_value('ctl00_ContentPlaceHolder1_txbPrimerPago')
