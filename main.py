@@ -5,24 +5,13 @@ from plan_quoter import Quoter
 from selenium.webdriver.common.by import By
 import logging
 from exceptions import QuoterError, PlanSelectionError, DataCollectionError, NavigationError, ElementInteractionError
-from logging.handlers import RotatingFileHandler
 from database_handler import DatabaseHandler
+from logging_config import setup_logging
+import time
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("app.log", mode="w"),  # Overwrites the log file on each run
-    ]
-)
-
-# Suppress logs from Selenium and other third-party libraries
-logging.getLogger("selenium").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-
-# Create a logger for this module
-logger = logging.getLogger(__name__)
+# Initialize logging at the start of your program
+logger = setup_logging()
+logger.info("Application starting...")
 
 class MainController:
     def __init__(self):
@@ -37,6 +26,7 @@ class MainController:
         self.products = PRODUCTS
 
     def run(self):
+        start_time = time.time()
         logger.info("Starting the quoting process...")
         
         for product in self.products:
@@ -44,7 +34,9 @@ class MainController:
 
         logger.info("Saving dataframes...")
         self.save_dataframes()
-        logger.info("Quoting process completed.")
+
+        total_time = time.time() - start_time
+        logger.info(f"Quoting process completed in {total_time:.2f} seconds.")
 
     def process_product_plans(self, product):
         logger.info(f"Processing product: {product['product']}")

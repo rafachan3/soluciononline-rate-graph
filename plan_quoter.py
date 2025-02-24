@@ -18,6 +18,7 @@ class Quoter:
         self.data = []                         # Initialize other data attributes if needed
 
     def access_product(self, product_identifier):
+        start_time = time.time()
         logger.info("Waiting for product button to become clickable...")
         product_button = self.wait.until(EC.element_to_be_clickable(product_identifier))
         product_button.click()
@@ -40,6 +41,7 @@ class Quoter:
         accept_button = self.wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn-success')))
         accept_button.click()
         logger.info("Pop-up handled.")
+        logger.info(f"Product access completed in {time.time() - start_time:.2f} seconds")
 
     def select_plan_from_dropdown(self, dropdown_selector, plan_value):
         if plan_value == "060001001213" or plan_value == "060001001219":
@@ -132,11 +134,11 @@ class Quoter:
             self._set_coverage_options_pleno_integro()
             
             # Calculate and collect data
-            data = self._calculate_and_collect_data(plan)
+            data = self._calculate_and_collect_data(plan, age)
 
             # Navigate back
             self._navigate_back_to_start()
-
+            
             return data
             
         except Exception as e:
@@ -152,7 +154,7 @@ class Quoter:
             self._set_coverage_options_flex()
             
             # Calculate and collect data
-            data = self._calculate_and_collect_data(plan)
+            data = self._calculate_and_collect_data(plan, age)
 
             # Navigate back
             self._navigate_back_to_start()
@@ -264,7 +266,7 @@ class Quoter:
         except Exception as e:
             raise ElementInteractionError(f"Failed to set coverage options for Alfa Medical Flex plans: {str(e)}")
     
-    def _calculate_and_collect_data(self, plan):
+    def _calculate_and_collect_data(self, plan, age):
         """Switch to results tab, calculate plan details and collect resulting data.
         
         Args:
@@ -276,6 +278,7 @@ class Quoter:
         Raises:
             DataCollectionError: If calculation or data collection fails
         """
+        start_time = time.time()
         try:
             # Click Calculate button
             calculate_button = self.wait.until(EC.element_to_be_clickable(
@@ -289,12 +292,18 @@ class Quoter:
                     
             # Collect and return data
             logger.info(f"Collecting data for plan: {plan['name']}")
+
             data = self.data_collector.collect_all_data()
+
+            quote_time = time.time() - start_time
+            logger.info(f"Successfully quoted {plan['name']} plan for age {age} in {quote_time:.2f} seconds")
+
             logger.info(f"Data collected: {data}")
             
             return data or {}
             
         except Exception as e:
+            logger.error(f"Failed to calculate and collect data in {time.time() - start_time:.2f} seconds: {str(e)}")
             raise DataCollectionError(f"Failed to calculate and collect data: {str(e)}")
         
     def _switch_to_results_tab(self):

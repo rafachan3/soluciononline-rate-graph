@@ -2,6 +2,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from exceptions import ElementInteractionError
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ class DataCollector:
 
 
     def collect_all_data(self):
-            logger.debug("Collecting data fields...")
-            data = {
+        start_time = time.time()
+        logger.debug("Collecting data fields...")
+        data = {
             'Suma asegurada': self.insured_sum(),
             'Prima básica anual': self.annual_basic_premium(),
             'Prima de beneficios adicionales anual': self.annual_a_benefits_premium(),
@@ -49,8 +51,9 @@ class DataCollector:
             'Prima neta anual': self.annual_net_premium(),
             'Primer Pago': self.first_payment()
         }
-            logger.info("All data fields collected successfully.")
-            return data
+        collection_time = time.time() - start_time
+        logger.info(f"All data fields collected successfully in {collection_time:.2f} seconds")
+        return data
     
     # Individual field collectors
 

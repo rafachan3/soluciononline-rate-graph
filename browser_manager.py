@@ -30,6 +30,7 @@ class BrowserManager:
         self.wait = WebDriverWait(self.driver, RETRY_CONFIG['wait_time'] )
 
     def login(self):
+        start_time = time.time()
         max_attempts = RETRY_CONFIG['max_login_attempts']
         attempt = RETRY_CONFIG['max_quote_retries']
         
@@ -76,7 +77,9 @@ class BrowserManager:
                 try:
                     quick_wait = WebDriverWait(self.driver, RETRY_CONFIG['short_wait_time'])
                     quick_wait.until(EC.presence_of_element_located((By.LINK_TEXT, ELEMENT_IDS['login']['new_prospect'])))
+                    login_time = time.time() - start_time
                     logger.info("Login successful!")
+                    logger.info(f"Login completed in {login_time:.2f} seconds after {attempt} attempts")
                     return
                 except TimeoutException:
                     # Not logged in yet, continue monitoring
