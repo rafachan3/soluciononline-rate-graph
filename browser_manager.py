@@ -110,7 +110,7 @@ class BrowserManager:
 
     def set_age_start_quoting(self, age):
         try:
-            logger.info(f"Setting age to {age}...")
+            logger.debug(f"Setting age to {age}...")
 
             try: 
                 # Wait for age input to appear
@@ -121,13 +121,12 @@ class BrowserManager:
             
             age_input.clear()
             age_input.send_keys(age)
-            logger.info(f"Successfully set age to {age}.")
 
             # Wait for the quote button and click it
-            logger.info("Attempting to click 'Start Quoting' button...")
+            logger.debug("Attempting to click 'Start Quoting' button...")
             quote_button = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['prospect']['quote_button'])))
             quote_button.click()
-            logger.info("Quoting process started.")
+            logger.debug("Quoting process started.")
         except TimeoutException:
             logger.error("Timeout: Unable to locate 'Edad' input or 'cmdCotizarProducto' button.")
             raise
@@ -155,7 +154,7 @@ class BrowserManager:
                         try:
                             button = short_wait.until(EC.presence_of_element_located(selector))
                             if button.is_displayed():
-                                logger.info(f"Accept button found on attempt {attempt + 1}, attempting to click...")
+                                logger.debug(f"Accept button found on attempt {attempt + 1}, attempting to click...")
                                 # Ensure element is in view
                                 self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
                                 
@@ -167,7 +166,6 @@ class BrowserManager:
                                 
                                 # Quick check that the modal is gone
                                 short_wait.until(EC.invisibility_of_element((By.ID, 'modal')))
-                                logger.info("Modal handled successfully.")
                                 return
                         except (TimeoutException, ElementNotInteractableException):
                             continue

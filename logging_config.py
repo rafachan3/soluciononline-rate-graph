@@ -1,11 +1,17 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import datetime
+import glob
 
-def setup_logging(log_dir="logs"):
-    """Configure application logging with rotation and different output formats."""
+def setup_logging(log_dir="logs", max_logs=3):
+    """Configure application logging with new file per run and limit on total logs."""
     # Create logs directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
+    
+    # Generate timestamp for unique log file
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_filename = os.path.join(log_dir, f"app_{timestamp}.log")
     
     # Configure root logger
     root_logger = logging.getLogger()
@@ -19,12 +25,8 @@ def setup_logging(log_dir="logs"):
         "%(levelname)s: %(message)s"
     )
     
-    # File handler with rotation
-    file_handler = RotatingFileHandler(
-        os.path.join(log_dir, "app.log"),
-        maxBytes=5*1024*1024,  # 5 MB
-        backupCount=3,  # Keep 3 backup files
-    )
+    # Standard file handler (no rotation needed since we're creating new files per run)
+    file_handler = logging.FileHandler(log_filename)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(file_formatter)
     
@@ -41,4 +43,23 @@ def setup_logging(log_dir="logs"):
     logging.getLogger("selenium").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     
+    # Clean up old log files, keeping only the most recent ones
+    _cleanup_old_logs(log_dir, max_logs)
+    
+    logging.info(f"Logging initialized: writing to {log_filename}")
     return root_logger
+
+def _cleanup_old_logs(log_dir, max_logs):
+    """Delete older log files, keeping only the most recent ones."""
+    log_files = glob.glob(os.path.join(log_dir, "app_*.log"))
+    
+    # Sort by modification time (newest first)
+    log_files.sort(key=os.path.getmtime, reverse=True)
+    
+    # Remove all but the most recent max_logs files
+    for old_file in log_files[max_logs:]:
+        try:
+            os.remove(old_file)
+        except Exception as e:
+            # Just log failures but don't stop the program
+            print(f"Failed to remove old log file {old_file}: {e}")

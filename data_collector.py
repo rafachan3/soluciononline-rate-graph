@@ -39,9 +39,9 @@ class DataCollector:
 
 
 
-    def collect_all_data(self):
+    def collect_all_data(self, product, plan, age):
         start_time = time.time()
-        logger.debug("Collecting data fields...")
+        logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Collecting data fields...")
         data = {
             'Suma asegurada': self.insured_sum(),
             'Prima básica anual': self.annual_basic_premium(),
@@ -52,7 +52,7 @@ class DataCollector:
             'Primer Pago': self.first_payment()
         }
         collection_time = time.time() - start_time
-        logger.info(f"All data fields collected successfully in {collection_time:.2f} seconds")
+        logger.info(f"[{product['product']}/{plan['name']}/Age {age}] All data fields collected successfully in {collection_time:.2f} seconds")
         return data
     
     # Individual field collectors

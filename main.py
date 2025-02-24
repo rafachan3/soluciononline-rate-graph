@@ -42,30 +42,30 @@ class MainController:
         logger.info(f"Processing product: {product['product']}")
 
         # Reset age to 0 and start quote process before accessing new product
-        logger.info("Setting age to 0 before processing new product...")
+        logger.debug("Setting age to 0 before processing new product...")
         self.browser_manager.set_age_start_quoting(0)
 
-        logger.info(f"Accessing product: {product['product']}")
-        self.quoter.access_product(product['product_identifier'])
+        logger.debug(f"Accessing product: {product['product']}")
+        self.quoter.access_product(product['product_identifier'], product['product'])
 
         for plan in product['plans']:
             self.process_plan(plan, product)
         
-        logger.info(f"Completed processing all plans for product: {product['product']}")
+        logger.info(f"Completed processing all plans for {product['product']}")
 
     def process_plan(self, plan, product):
-        logger.info(f"Processing plan: {plan['name']}")
+        logger.info(f"[{product['product']}/{plan['name']}] Processing Plan")
 
         try:
         
             # Select the plan from dropdown
-            logger.info(f"Selecting plan: {plan['name']}")
+            logger.debug(f"[{product['product']}/{plan['name']}] Selecting Plan")
             dropdown_selector = (By.ID, ELEMENT_IDS['plan']['plan_dropdown'])
-            self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
+            self.quoter.select_plan_from_dropdown(dropdown_selector, plan, product)
 
             # Process all ages for this plan
             for age in range(AGE_RANGE['min_age'], AGE_RANGE['max_age'] + 1):
-                logger.debug(f"Quoting for age: {age}")
+                logger.debug(f"[{product['product']}/{plan['name']}] Quoting for age: {age}")
                 try: 
                     # Quote and collect data for current age
                     data = self.quoter.quote_plan(age, plan, product)
@@ -85,14 +85,14 @@ class MainController:
         except Exception as e:
             logger.error(f"Failed to process plan {plan['name']}: {str(e)}")
 
-        logger.info(f"Completed processing all ages for plan: {plan['name']}")
+        logger.info(f"[{product['product']}/{plan['name']}] Completed processing all ages for plan")
 
          # If this isn't the last plan, reset age to 0 and start quote process for next plan
         if plan != product['plans'][-1]:
-            logger.info("Resetting age to 0 before processing next plan...")
+            logger.debug("Resetting age to 0 before processing next plan...")
             self.browser_manager.set_age_start_quoting(0)
             # Reaccess product after resetting age
-            self.quoter.access_product(product['product_identifier'])
+            self.quoter.access_product(product['product_identifier'], product['product'])
 
     def _prepare_next_age(self, age, product, dropdown_selector, plan):
         """Prepares the system for processing the next age by resetting the necessary states.
@@ -103,17 +103,17 @@ class MainController:
             dropdown_selector (tuple): Selector tuple for the plan dropdown
             plan (dict): Plan information dictionary
         """
-        logger.info(f"Setting up for next age: {age + 1}")
+        logger.debug(f"[{product['product']}/{plan['name']}] Setting up for next age: {age + 1}")
         
         try:
             # Set the next age and start quote process
             self.browser_manager.set_age_start_quoting(age + 1)
             
             # Reaccess product after setting new age
-            self.quoter.access_product(product['product_identifier'])
+            self.quoter.access_product(product['product_identifier'], product['product'])
             
             # Reselect plan
-            self.quoter.select_plan_from_dropdown(dropdown_selector, plan['value'])
+            self.quoter.select_plan_from_dropdown(dropdown_selector, plan, product)
             
         except Exception as e:
             logger.error(f"Failed to prepare for next age: {str(e)}")
@@ -125,7 +125,6 @@ class MainController:
         logger.info(f"All data exported to {output_file}")
         
 if __name__ == '__main__':
-    logger.info("Starting the application...")
     controller = MainController()
     try:
         controller.run()
