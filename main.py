@@ -14,6 +14,13 @@ logger = setup_logging()
 logger.info("Application starting...")
 
 class MainController:
+    """
+    Main controller class that orchestrates the entire insurance quote collection process.
+    
+    This class serves as the central coordinator for the insurance quote data collection
+    workflow. It initializes all required components, manages the process of collecting
+    quotes for all products, plans, and ages, and ensures data is properly stored.
+    """    
     def __init__(self):
         browser_manager = BrowserManager()
         logger.info("Initializing MainController...")
@@ -68,10 +75,10 @@ class MainController:
                 logger.debug(f"[{product['product']}/{plan['name']}] Quoting for age: {age}")
                 try: 
                     # Quote and collect data for current age
-                    data = self.quoter.quote_plan(age, plan, product)
+                    plan_pricing_data = self.quoter.quote_plan(age, plan, product)
 
-                    if data:  # Only store if we got valid data
-                        self.db_handler.insert_plan_data(plan['name'], age, data)
+                    if plan_pricing_data:  # Only store if we got valid data
+                        self.db_handler.insert_plan_data(plan['name'], age, plan_pricing_data)
                     else:
                         logger.warning(f"No data collected for {plan['name']} at age {age}")
                 
@@ -109,7 +116,8 @@ class MainController:
             # Set the next age and start quote process
             self.browser_manager.set_age_start_quoting(age + 1)
             
-            # Reaccess product after setting new age
+            # Reaccess product after setting new age - this is necessary because
+            # the workflow resets after changing the age
             self.quoter.access_product(product['product_identifier'], product['product'])
             
             # Reselect plan
@@ -120,6 +128,13 @@ class MainController:
             raise NavigationError(f"Could not set up for age {age + 1}") from e
 
     def save_dataframes(self):
+        """
+        Export all collected data to Excel format for analysis.
+        
+        This method triggers the database handler to export all stored data
+        to an Excel file with separate sheets for each plan. This facilitates
+        easy analysis and reporting of the collected insurance pricing data.
+        """
         # Export to Excel from database
         output_file = self.db_handler.export_to_excel()
         logger.info(f"All data exported to {output_file}")

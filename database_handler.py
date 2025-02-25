@@ -36,7 +36,18 @@ class DatabaseHandler:
         conn.commit()
         conn.close()
 
-    def insert_plan_data(self, plan_name, age, data):
+    def insert_plan_data(self, plan_name, age, pricing_data):
+        """
+        Insert new plan pricing data into the database.
+        
+        This method stores a complete set of pricing data for a specific plan and age.
+        It includes all the pricing components and a timestamp for when the data was collected.
+        
+        Args:
+            plan_name (str): Name of the insurance plan
+            age (int): Age of the prospective insured
+            pricing_data (dict): Dictionary containing all pricing components
+        """
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
 
@@ -50,13 +61,13 @@ class DatabaseHandler:
         ''', (
             plan_name,
             age,
-            data.get('Suma asegurada', ''),
-            data.get('Prima básica anual', ''),
-            data.get('Prima de beneficios adicionales anual', ''),
-            data.get('Derecho de póliza', ''),
-            data.get('IVA', ''),
-            data.get('Prima neta anual', ''),
-            data.get('Primer Pago', ''),
+            pricing_data.get('Suma asegurada', ''),
+            pricing_data.get('Prima básica anual', ''),
+            pricing_data.get('Prima de beneficios adicionales anual', ''),
+            pricing_data.get('Derecho de póliza', ''),
+            pricing_data.get('IVA', ''),
+            pricing_data.get('Prima neta anual', ''),
+            pricing_data.get('Primer Pago', ''),
             datetime.now()
         ))
 
@@ -64,6 +75,19 @@ class DatabaseHandler:
         conn.close()
 
     def get_latest_data(self, plan_name=None):
+        """
+        Retrieve the most recent data for a specific plan or all plans.
+        
+        This method allows querying the latest pricing data, either for a 
+        specific plan or across all plans, sorted by collection date.
+        
+        Args:
+            plan_name (str, optional): Name of the plan to retrieve data for.
+                                      If None, retrieves data for all plans.
+        
+        Returns:
+            list: List of tuples containing the requested data rows
+        """
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
 
@@ -83,6 +107,20 @@ class DatabaseHandler:
         return data
 
     def export_to_excel(self, filename=DB_CONFIG['default_export_filename']):
+        """
+        Export all stored data to an Excel file for analysis.
+        
+        This method exports the most recent data for each plan to a separate
+        sheet in an Excel workbook. This format facilitates easy analysis and
+        comparison across different plans and ages.
+        
+        Args:
+            filename (str, optional): Name of the Excel file to create.
+                                    Defaults to the value in DB_CONFIG.
+        
+        Returns:
+            str: The name of the created Excel file
+        """
         start_time = time.time()
         conn = sqlite3.connect(self.db_name)
         

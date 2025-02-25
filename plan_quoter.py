@@ -11,6 +11,14 @@ from data_collector import DataCollector
 logger = logging.getLogger(__name__)
 
 class Quoter:
+    """
+    Manages the process of quoting insurance plans by navigating through the web interface.
+    
+    This class handles the process of selecting products, plans, and options, then calculating
+    and collecting pricing data. It works with different insurance products (Alfa Medical and 
+    Alfa Medical Flex) and their respective plans, handling the unique navigation paths and 
+    option selections required for each product type.
+    """
     def __init__(self, browser_manager):
         self.browser_manager = browser_manager  # Assign the passed instance
         self.wait = browser_manager.wait       # Reuse WebDriverWait from BrowserManager
@@ -18,8 +26,23 @@ class Quoter:
         self.data = []                         # Initialize other data attributes if needed
 
     def access_product(self, product_identifier, product_name):
+        """
+        Navigate to a specific insurance product in the web interface.
+        
+        This is the first step in the quoting process - selecting which insurance product
+        to quote (Alfa Medical or Alfa Medical Flex). After selecting the product, this method
+        also handles the initial popup that appears when selecting a new plan type.
+        
+        Args:
+            product_identifier: Selenium locator tuple for the product button
+            product_name: Human-readable name of the product for logging
+        
+        Raises:
+            TimeoutException: If product elements cannot be found
+        """
         start_time = time.time()
         logger.debug(f"[{product_name}] Waiting for product button to become clickable...")
+        # This button represents selecting a new quote workflow rather than modifying an existing one
         product_button = self.wait.until(EC.element_to_be_clickable(product_identifier))
         product_button.click()
 
@@ -35,11 +58,33 @@ class Quoter:
 
         logger.debug("Handling pop-up...")
         plan_type_button.click()
+        # After clicking the new quote button, a confirmation dialog appears
+        # that must be accepted to proceed with the quote process
         accept_button = self.wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn-success')))
         accept_button.click()
         logger.info(f"[{product_name}] Product access completed in {time.time() - start_time:.2f} seconds")
 
     def select_plan_from_dropdown(self, dropdown_selector, plan, product):
+        """
+        Select a specific insurance plan from the dropdown menu.
+        
+        The insurance system has different plans within each product category.
+        This method selects the appropriate plan (e.g., Pleno, Integro, Flex A, Flex B).
+        
+        Note: Plans with specific values (060001001213 or 060001001219) are skipped
+        as they are handled differently in the workflow.
+        
+        Args:
+            dropdown_selector: Selenium locator tuple for the plan dropdown
+            plan: Dict containing plan information (name, value)
+            product: Dict containing product information
+            
+        Raises:
+            TimeoutException: If plan dropdown cannot be found
+        """
+
+        # Skip certain plans as they're handled differently in the workflow
+        # (060001001213 = Pleno, 060001001219 = Flex A)
         if plan['value'] == "060001001213" or plan['value'] == "060001001219":
             return
             
@@ -52,6 +97,7 @@ class Quoter:
             dropdown_menu = quick_wait.until(EC.presence_of_element_located(dropdown_selector))
         except TimeoutException:
             # If first selector fails, try the alternative immediately
+            # This is necessary as the DOM structure can vary between plan types
             logger.debug(f"[{product['product']}/{plan['name']}] Primary dropdown selector not found, trying alternative...")
             alternative_selector = (By.ID, "ctl00_ContentPlaceHolder1_ddlPlan")
             try:
@@ -68,19 +114,44 @@ class Quoter:
         )
         plan_option.click()
 
+        # Handle any popup that appears after plan selection (common in insurance UIs)
         self.browser_manager.pop_up_handler()
-
         self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
 
     def quote_plan(self, age, plan, product):
+        """
+        Execute the full quoting process for a specific plan and age.
+        
+        This is the main workflow method that orchestrates the entire quoting process:
+        1. Select appropriate plan handler based on plan type
+        2. Set all required parameters (residence, deductible, coverage options)
+        3. Calculate pricing
+        4. Collect the resulting pricing data
+        
+        The method includes retry logic to handle transient errors in the web interface.
+        
+        Args:
+            age: Age of the prospective insured person
+            plan: Dict containing plan information
+            product: Dict containing product information
+            
+        Returns:
+            Dict containing the collected pricing data or empty dict on failure
+            
+        Raises:
+            QuoterError: If the quoting process fails after all retries
+        """
         max_retries = RETRY_CONFIG['max_quote_retries']
         retry_count = 0
         
         while retry_count < max_retries:
             try:
+                # Different plan types require different handling procedures
                 if plan['name'] in ["Pleno", "Integro"]:
+                    # These are Alfa Medical base plans
                     return self._handle_pleno_integro_plan(product, plan, age)
                 elif plan['name'] in ["Flex A", "Flex B"]:
+                    # These are Alfa Medical Flex plans with different options
                     return self._handle_flex_plan(product, plan, age)
                 else:
                     raise PlanSelectionError(f"Unknown plan type: {plan['name']}")
@@ -90,6 +161,7 @@ class Quoter:
                 retry_count += 1
                 if retry_count < max_retries:
                     logger.info(f"[{product['product']}/{plan['name']}/Age {age}] Retrying quote_plan (attempt {retry_count + 1} of {max_retries})")
+                    # Refresh the page to start the process over with a clean state
                     self.browser_manager.driver.refresh()
                     continue
                 raise QuoterError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to quote plan after {max_retries} attempts") from e
@@ -113,61 +185,102 @@ class Quoter:
                 raise QuoterError(f"Navigation failed after {max_retries} attempts") from e
             
     def _handle_pleno_integro_plan(self, product, plan, age):
-        """Handle quoting process for Pleno and Integro (Alfa Medical) plans"""
+        """
+        Handle the quoting process specific to Alfa Medical Pleno and Integro plans.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Returns:
+            Dict containing the collected pricing data
+            
+        Raises:
+            DataCollectionError: If any part of the process fails
+        """
         try:
-            # Set state of residence
+            # Set state of residence - pricing varies by location due to
+            # regional differences in healthcare costs
             self._set_residence(product, plan, age)
             
-            # Set deductible
+            # Set deductible - this is the amount the customer pays before insurance kicks in
+            # Standardized to 40,000 MXN for consistent comparison
             self._set_deductible_amount(product, plan, age)
 
+            # Set unique deductible option - makes deductible apply per condition
+            # rather than per event (typically preferred by customers)
             self._set_unique_deductible(product, plan, age)
             
-            # Set coverage options
+            # Set coverage options - adds CAE (international coverage) and CEDA (accident coverage)
+            # These are popular additions that enhance the basic plan
             self._set_coverage_options_pleno_integro(product, plan, age)
             
-            # Calculate and collect data
-            data = self._calculate_and_collect_data(product, plan, age)
+            # Calculate and collect pricing data based on all selected options
+            plan_pricing_data = self._calculate_and_collect_data(product, plan, age)
 
-            # Navigate back
+            # Navigate back to start for next iteration
             self._navigate_back_to_start()
             
-            return data
+            return plan_pricing_data
             
         except Exception as e:
             raise DataCollectionError(f"[{product['product']}/{plan['name']}/Age {age}] Error processing the plan: {str(e)}")
 
     def _handle_flex_plan(self, product, plan, age):
-        """Handle quoting process for Alfa Medical Flex plans"""
+        """
+        Handle the quoting process specific to Alfa Medical Flex plans.
+        
+        Flex plans have a simpler configuration process but different coverage options:
+        1. Flex-specific coverage options (CAE for international, CRCPA for accident copay reduction)
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Returns:
+            Dict containing the collected pricing data
+            
+        Raises:
+            DataCollectionError: If any part of the process fails
+        """
         try:
             # Set state of residence
             self._set_residence(product, plan, age)
             
-            # Set coverage options
+            # Set coverage options - Flex plans have different available options
+            # compared to standard Alfa Medical plans
             self._set_coverage_options_flex(product, plan, age)
             
-            # Calculate and collect data
-            data = self._calculate_and_collect_data(product, plan, age)
+            # Calculate and collect pricing data based on all selected options
+            plan_pricing_data = self._calculate_and_collect_data(product, plan, age)
 
-            # Navigate back
+            # Navigate back to start for next iteration
             self._navigate_back_to_start()
 
-            return data
+            return plan_pricing_data
             
         except Exception as e:
             raise DataCollectionError(f"[{product['product']}/{plan['name']}/Age {age}] Error processing the plan: {str(e)}")
         
     def _set_residence(self, product, plan, age):
-        """Set residence to Veracruz based on plan type
+        """
+        Set the state of residence for the insurance quote.
+        
+        Standardized to Veracruz for consistent comparison across all quotes.
         
         Args:
-            product (dict): The product information dictionary
-            plan (dict): The plan information dictionary
-            age (int): The age being processed
-            plan_type (str): The type of plan ('flex' or 'alfa_medical')
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Raises:
+            ElementInteractionError: If the residence cannot be set
         """
         try:
             # Select the appropriate residence element ID based on plan type
+            # Different products have differently structured DOMs
             residence_id = (ELEMENT_IDS['plan']['residence_dropdown']['flex'] 
                         if product['product'] == 'Alfa Medical Flex'
                         else ELEMENT_IDS['plan']['residence_dropdown']['alfa_medical'])
@@ -183,13 +296,14 @@ class Quoter:
             residence = self.wait.until(EC.presence_of_element_located((By.ID, residence_id)))
             residence.click()
             
-            # Select Veracruz option
+            # Select Veracruz option - using the index from config for consistency
             residence_option = self.wait.until(
                 EC.presence_of_element_located((By.XPATH, option_xpath))
             )
             residence_option.click()
             
-            # Handle popup
+            # Handle possible popup after residence selection
+            # (e.g., notices about regional coverage limitations)            
             self.browser_manager.pop_up_handler()
             self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
             
@@ -197,7 +311,21 @@ class Quoter:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}] Failed to set residence: {str(e)}")
         
     def _set_deductible_amount(self, product, plan, age):
-        """Set deductible to 40,000"""
+        """
+        Set the deductible amount to 40,000 MXN.
+        
+        The deductible is the amount the insured must pay before the insurance coverage begins.
+        Standardizing to 40,000 MXN allows for consistent comparison across all quotes.
+        This is a common mid-range deductible that balances premium cost with out-of-pocket expense.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Raises:
+            ElementInteractionError: If the deductible cannot be set
+        """
         try:
             logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting deductible to 40,000")
             
@@ -215,7 +343,21 @@ class Quoter:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set deductible: {str(e)}")
         
     def _set_unique_deductible(self, product, plan, age):
-        """Check 'Deducible único' checkbox"""
+        """
+        Enable the 'Deducible único' (Unique Deductible) option.
+        
+        This option provides that the deductible applies per illness/condition rather than per event.
+        This is typically preferred by customers as it means they only pay the deductible once
+        for an ongoing condition rather than for each hospital visit related to that condition.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Raises:
+            ElementInteractionError: If the option cannot be set
+        """
         try:
             logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Checking 'Deducible único' checkbox")
             
@@ -227,7 +369,24 @@ class Quoter:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to check 'Deducible único' checkbox: {str(e)}")
         
     def _set_coverage_options_pleno_integro(self, product, plan, age):
-        """Set coverage options for Alfa Medical plans using config"""
+        """
+        Set additional coverage options for Alfa Medical plans.
+        
+        For standard Alfa Medical plans, we enable:
+        1. CAE (Cobertura de Asistencia en el Extranjero) - Provides coverage for emergency care abroad
+        2. CEDA (Eliminación de Deducible por Accidente) - Waives the deductible for accident-related claims
+        
+        These options are popular additions that enhance the basic coverage and provide
+        better value for the customer.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Raises:
+            ElementInteractionError: If the options cannot be set
+        """
         try:
             logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting coverage options")
             
@@ -242,7 +401,24 @@ class Quoter:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set coverage options {str(e)}")
         
     def _set_coverage_options_flex(self, product, plan, age):
-        """Set coverage options for Flex plans using config"""
+        """
+        Set additional coverage options for Alfa Medical Flex plans.
+        
+        For Flex plans, we enable:
+        1. CAE (Cobertura de Asistencia en el Extranjero) - Provides coverage for emergency care abroad
+        2. CRCPA (Cobertura Reducción Copago por Accidente) - Reduces copayment for accident-related claims
+        
+        Flex plans have different available options compared to standard plans,
+        reflecting their different structure and target market.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
+        Raises:
+            ElementInteractionError: If the options cannot be set
+        """
         try:
             logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting coverage options")
             
@@ -260,13 +436,21 @@ class Quoter:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set coverage options: {str(e)}")
     
     def _calculate_and_collect_data(self, product, plan, age):
-        """Switch to results tab, calculate plan details and collect resulting data.
+        """
+        Calculate the plan pricing and collect the resulting data.
+        
+        This method:
+        1. Clicks the Calculate button to run the pricing engine
+        2. Switches to the Results tab to view the calculated prices
+        3. Collects all relevant pricing data points (premium, fees, taxes, etc.)
         
         Args:
-            plan (dict): The plan information dictionary
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
             
         Returns:
-            dict: The collected data or empty dict if collection fails
+            Dict containing all collected pricing data
             
         Raises:
             DataCollectionError: If calculation or data collection fails
@@ -284,25 +468,34 @@ class Quoter:
             self._switch_to_results_tab(product, plan, age)
                     
             # Collect and return data
-            data = self.data_collector.collect_all_data(product, plan, age)
+            plan_pricing_data = self.data_collector.collect_all_data(product, plan, age)
 
             quote_time = time.time() - start_time
             logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Successfully quoted {plan['name']} plan for age {age} in {quote_time:.2f} seconds")
 
-            logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Data collected: {data}")
+            logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Data collected: {plan_pricing_data}")
             
-            return data or {}
+            return plan_pricing_data or {}
             
         except Exception as e:
             logger.error(f"[{product['product']}/{plan['name']}/Age {age}] Failed to calculate and collect data in {time.time() - start_time:.2f} seconds: {str(e)}")
             raise DataCollectionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to calculate and collect data: {str(e)}")
         
     def _switch_to_results_tab(self, product, plan, age):
-        """Switch to the Results tab with retry logic and popup handling.
+        """
+        Switch to the Results tab with retry logic and popup handling.
         
-        This method attempts to switch to the 'Resultado' tab multiple times if needed,
-        handling any popups that appear during the process.
+        This method is crucial because it navigates to where the calculated pricing data
+        is displayed. The system requires multiple retries because:
+        1. The calculation may take time to complete
+        2. Popups may appear blocking the tab
+        3. The tab may not be immediately clickable
         
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            
         Raises:
             NavigationError: If unable to switch to the Results tab after all retries
         """
@@ -339,7 +532,17 @@ class Quoter:
                 time.sleep(1)  # Short pause before retrying
     
     def _navigate_back_to_start(self):
-        """Navigate back to the starting page using the two back buttons"""
+        """
+        Navigate back to the starting page using the two back buttons.
+        
+        This method returns to the initial page to prepare for the next quote.
+        The system requires clicking two separate back buttons to return to the start:
+        1. First back button returns from results to options
+        2. Second back button returns from options to the prospect page
+        
+        Raises:
+            NavigationError: If navigation back fails
+        """
         try:
             first_back_button = self.wait.until(EC.element_to_be_clickable(
                 (By.ID, ELEMENT_IDS['plan']['back_button_1'])
