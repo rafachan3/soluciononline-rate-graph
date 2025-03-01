@@ -35,9 +35,21 @@ class MainController:
     def run(self):
         start_time = time.time()
         logger.info("Starting the quoting process...")
-        
+
+        # First pass: Process Pleno and Integro with 38000 MXN deductible
         for product in self.products:
-            self.process_product_plans(product)
+            if product['product'] == 'Alfa Medical':  # Only for Alfa Medical (Pleno & Integro)
+                self.process_product_plans(product, deductible="38,000")
+
+        # Second pass: Process Pleno and Integro with 43000 MXN deductible
+        for product in self.products:
+            if product['product'] == 'Alfa Medical':  # Only for Alfa Medical (Pleno & Integro)
+                self.process_product_plans(product, deductible="43,000")
+       
+        # Third pass: Process Flex A and Flex B plans normally
+        for product in self.products:
+            if product['product'] == 'Alfa Medical Flex':
+                self.process_product_plans(product, deductible=None)
 
         logger.info("Saving dataframes...")
         self.save_dataframes()
@@ -45,22 +57,22 @@ class MainController:
         total_time = time.time() - start_time
         logger.info(f"Quoting process completed in {total_time:.2f} seconds.")
 
-    def process_product_plans(self, product):
+    def process_product_plans(self, product, deductible):
         logger.info(f"Processing product: {product['product']}")
 
         # Reset age to 0 and start quote process before accessing new product
-        logger.debug("Setting age to 0 before processing new product...")
-        self.browser_manager.set_age_start_quoting(0)
+        logger.debug(f"Setting age to {AGE_RANGE['min_age']} before processing new product...")
+        self.browser_manager.set_age_start_quoting(AGE_RANGE['min_age'])
 
         logger.debug(f"Accessing product: {product['product']}")
         self.quoter.access_product(product['product_identifier'], product['product'])
 
         for plan in product['plans']:
-            self.process_plan(plan, product)
+                self.process_plan(plan, product, deductible)
         
         logger.info(f"Completed processing all plans for {product['product']}")
 
-    def process_plan(self, plan, product):
+    def process_plan(self, plan, product, deductible):
         logger.info(f"[{product['product']}/{plan['name']}] Processing Plan")
 
         try:
@@ -72,13 +84,14 @@ class MainController:
 
             # Process all ages for this plan
             for age in range(AGE_RANGE['min_age'], AGE_RANGE['max_age'] + 1):
+                self.quoter.current_age = age
                 logger.debug(f"[{product['product']}/{plan['name']}] Quoting for age: {age}")
                 try: 
                     # Quote and collect data for current age
-                    plan_pricing_data = self.quoter.quote_plan(age, plan, product)
+                    plan_pricing_data = self.quoter.quote_plan(age, plan, product, deductible)
 
                     if plan_pricing_data:  # Only store if we got valid data
-                        self.db_handler.insert_plan_data(plan['name'], age, plan_pricing_data)
+                        self.db_handler.insert_plan_data(plan['name'], age, plan_pricing_data, deductible)
                     else:
                         logger.warning(f"No data collected for {plan['name']} at age {age}")
                 

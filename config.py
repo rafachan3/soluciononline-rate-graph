@@ -16,12 +16,14 @@ ELEMENT_IDS = {
     },
     'plan': {
         'plan_dropdown': 'ddlPlan',
+        'validity': 'ctl00_ContentPlaceHolder1_vigencia',
         'residence_dropdown': {
             'alfa_medical': 'ddlResidencia',
             'flex': 'ctl00_ContentPlaceHolder1_ddlResidencia'
         },
         'deductible_dropdown': 'ddlDeducible',
         'unique_deductible': 'chbDeducibleUnico',
+        'coinsurance': 'ddlCoaseguro',
         'calculate_button': 'btnCalcular',
         'result_tab': 'Resultado',
         'back_button_1': 'ctl00_ContentPlaceHolder1_btnRegresar',
@@ -47,8 +49,8 @@ PRODUCTS = [
         'product': 'Alfa Medical',
         'product_identifier': (By.ID, '60'),
         'plans': [
-            {'name': 'Pleno', 'value': '060001001213'},
-            {'name': 'Integro', 'value': '060001001214'}
+            {'name': 'Pleno', 'value': '060001001155'},
+            {'name': 'Integro', 'value': '060001001157'}
         ]
     },
     {
@@ -73,13 +75,13 @@ PLAN_CONFIG = {
 # Database Configuration
 DB_CONFIG = {
     'default_db_name': 'insurance_data.db',
-    'default_export_filename': 'insurance_data_export.xlsx'
+    'default_export_filename': '01-05-2024_Anterior.xlsx'
 }
 
 # Age Range Configuration
 AGE_RANGE = {
     'min_age': 0,
-    'max_age': 1
+    'max_age': 75
 }
 
 # Plan's Coverage Options Configuration

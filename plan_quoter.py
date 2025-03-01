@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementNotInteractableException
 from config import ELEMENT_IDS, PLAN_CONFIG, RETRY_CONFIG, COVERAGE_OPTIONS
 from exceptions import QuoterError, PlanSelectionError, DataCollectionError, NavigationError, ElementInteractionError
+from selenium.webdriver.common.keys import Keys 
 import time
 from data_collector import DataCollector
 
@@ -24,6 +25,7 @@ class Quoter:
         self.wait = browser_manager.wait       # Reuse WebDriverWait from BrowserManager
         self.data_collector = DataCollector(self.wait)  # Initialize DataCollector
         self.data = []                         # Initialize other data attributes if needed
+        self.current_age = 0                   # Add age tracker
 
     def access_product(self, product_identifier, product_name):
         """
@@ -48,12 +50,12 @@ class Quoter:
 
         try:
             try:
-                logger.debug("Waiting for 'btn_nvo' button to become clickable...")
-                plan_type_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btn_nvo')))
+                logger.debug("Waiting for 'btn_ant' button to become clickable...")
+                plan_type_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btn_ant')))
             except ElementNotInteractableException:
-                plan_type_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btn_nvo')))
+                plan_type_button = self.wait.until(EC.element_to_be_clickable((By.ID, 'btn_ant')))
         except TimeoutException:
-            logger.error("Timeout: 'btn_nvo' button was not found or not clickable.")
+            logger.error("Timeout: 'btn_ant' button was not found or not clickable.")
             raise
 
         logger.debug("Handling pop-up...")
@@ -71,7 +73,7 @@ class Quoter:
         The insurance system has different plans within each product category.
         This method selects the appropriate plan (e.g., Pleno, Integro, Flex A, Flex B).
         
-        Note: Plans with specific values (060001001213 or 060001001219) are skipped
+        Note: Plans with specific values (060001001155 or 060001001219) are skipped
         as they are handled differently in the workflow.
         
         Args:
@@ -84,10 +86,14 @@ class Quoter:
         """
 
         # Skip certain plans as they're handled differently in the workflow
-        # (060001001213 = Pleno, 060001001219 = Flex A)
-        if plan['value'] == "060001001213" or plan['value'] == "060001001219":
+        # (060001001155 = Pleno, 060001001219 = Flex A)
+        if plan['value'] == "060001001155" or plan['value'] == "060001001219":
             return
             
+        if plan['value'] == "060001001157":
+            age = 0
+            self._set_validity_date(product, plan, age, date_string="01/05/2024")
+
         # Create a quick wait for the initial dropdown selection
         quick_wait = WebDriverWait(self.browser_manager.driver, RETRY_CONFIG['short_wait_time'])
         logger.debug(f"[{product['product']}/{plan['name']}] Attempting to locate plan dropdown...")
@@ -118,7 +124,7 @@ class Quoter:
         self.browser_manager.pop_up_handler()
         self.wait.until(EC.invisibility_of_element((By.ID, 'modal')))
 
-    def quote_plan(self, age, plan, product):
+    def quote_plan(self, age, plan, product, deductible):
         """
         Execute the full quoting process for a specific plan and age.
         
@@ -149,7 +155,7 @@ class Quoter:
                 # Different plan types require different handling procedures
                 if plan['name'] in ["Pleno", "Integro"]:
                     # These are Alfa Medical base plans
-                    return self._handle_pleno_integro_plan(product, plan, age)
+                    return self._handle_pleno_integro_plan(product, plan, age, deductible)
                 elif plan['name'] in ["Flex A", "Flex B"]:
                     # These are Alfa Medical Flex plans with different options
                     return self._handle_flex_plan(product, plan, age)
@@ -184,7 +190,7 @@ class Quoter:
                     continue
                 raise QuoterError(f"Navigation failed after {max_retries} attempts") from e
             
-    def _handle_pleno_integro_plan(self, product, plan, age):
+    def _handle_pleno_integro_plan(self, product, plan, age, deductible, validity_date="01/05/2024"):
         """
         Handle the quoting process specific to Alfa Medical Pleno and Integro plans.
         
@@ -200,17 +206,22 @@ class Quoter:
             DataCollectionError: If any part of the process fails
         """
         try:
+            if validity_date and plan['name'] == "Pleno":
+                self._set_validity_date(product, plan, age, validity_date)
+
             # Set state of residence - pricing varies by location due to
             # regional differences in healthcare costs
             self._set_residence(product, plan, age)
             
             # Set deductible - this is the amount the customer pays before insurance kicks in
             # Standardized to 40,000 MXN for consistent comparison
-            self._set_deductible_amount(product, plan, age)
+            self._set_deductible_amount(product, plan, age, deductible)
 
             # Set unique deductible option - makes deductible apply per condition
             # rather than per event (typically preferred by customers)
-            self._set_unique_deductible(product, plan, age)
+            # self._set_unique_deductible(product, plan, age)
+
+            self._set_coinsurance(product, plan, age)
             
             # Set coverage options - adds CAE (international coverage) and CEDA (accident coverage)
             # These are popular additions that enhance the basic plan
@@ -227,7 +238,7 @@ class Quoter:
         except Exception as e:
             raise DataCollectionError(f"[{product['product']}/{plan['name']}/Age {age}] Error processing the plan: {str(e)}")
 
-    def _handle_flex_plan(self, product, plan, age):
+    def _handle_flex_plan(self, product, plan, age, validity_date="01/05/2024"):
         """
         Handle the quoting process specific to Alfa Medical Flex plans.
         
@@ -246,6 +257,10 @@ class Quoter:
             DataCollectionError: If any part of the process fails
         """
         try:
+
+            if validity_date:
+                self._set_validity_date(product, plan, age, validity_date)
+
             # Set state of residence
             self._set_residence(product, plan, age)
             
@@ -264,6 +279,89 @@ class Quoter:
         except Exception as e:
             raise DataCollectionError(f"[{product['product']}/{plan['name']}/Age {age}] Error processing the plan: {str(e)}")
         
+    def _set_validity_date(self, product, plan, age, date_string):
+        """
+        Set the Vigencia (validity) date for the plan.
+        
+        Args:
+            product: Dict containing product information
+            plan: Dict containing plan information
+            age: Age of the prospective insured person
+            date_string: Date string in format DD/MM/YYYY
+        """
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting validity date to {date_string}, attempt {attempt+1}")
+                
+                # Wait for any ongoing AJAX calls to finish
+                self.browser_manager.driver.execute_script("return window.jQuery && jQuery.active === 0")
+                
+                # Get a fresh reference to the element each time
+                validity_date_input = self.wait.until(EC.presence_of_element_located(
+                    (By.ID, ELEMENT_IDS['plan']['validity']) 
+                ))
+                
+                current_value = validity_date_input.get_attribute('value')
+                
+                # If the date is already correct, we're done
+                if current_value == date_string:
+                    logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Date already set correctly to {date_string}")
+                    return
+                
+                # Use JavaScript to set the value
+                self.browser_manager.driver.execute_script(
+                    "arguments[0].value = arguments[1];", 
+                    validity_date_input, 
+                    date_string
+                )
+                
+                # Then trigger the change event separately
+                # This gives us control over when the postback happens
+                logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Triggering change event")
+                self.browser_manager.driver.execute_script(
+                    "arguments[0].dispatchEvent(new Event('change'));", 
+                    validity_date_input
+                )
+                
+                # Wait for the page to reload after the postback
+                logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Waiting for page to stabilize after date change")
+                time.sleep(2)
+                
+                # Wait for any loading indicators to disappear
+                try:
+                    WebDriverWait(self.browser_manager.driver, 10).until(
+                        EC.invisibility_of_element_located((By.ID, 'loading-overlay'))
+                    )
+                except:
+                    # If there's no loading overlay, just continue
+                    pass
+                
+                # Verify the date was set successfully (using a fresh reference)
+                try:
+                    new_input = WebDriverWait(self.browser_manager.driver, 5).until(
+                        EC.presence_of_element_located((By.ID, ELEMENT_IDS['plan']['validity']))
+                    )
+                    new_value = new_input.get_attribute('value')
+                    if new_value == date_string:
+                        logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Date successfully changed to {date_string}")
+                        
+                        # Handle any validation popups
+                        self.browser_manager.pop_up_handler()
+                        return  # Success!
+                    else:
+                        logger.warning(f"[{product['product']}/{plan['name']}/Age {age}] Date not changed. Expected {date_string}, got {new_value}")
+                except Exception as verify_error:
+                    logger.warning(f"[{product['product']}/{plan['name']}/Age {age}] Could not verify date change: {str(verify_error)}")
+                    
+            except Exception as e:
+                logger.warning(f"[{product['product']}/{plan['name']}/Age {age}] Attempt {attempt+1} failed: {str(e)}")
+                
+                if attempt == max_attempts - 1:
+                    # Only raise on the last attempt
+                    logger.error(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set Vigencia date after {max_attempts} attempts: {str(e)}")
+                    raise ElementInteractionError(f"Failed to set Vigencia date: {str(e)}")
+    
     def _set_residence(self, product, plan, age):
         """
         Set the state of residence for the insurance quote.
@@ -310,7 +408,7 @@ class Quoter:
         except Exception as e:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}] Failed to set residence: {str(e)}")
         
-    def _set_deductible_amount(self, product, plan, age):
+    def _set_deductible_amount(self, product, plan, age, deductible):
         """
         Set the deductible amount to 40,000 MXN.
         
@@ -327,17 +425,21 @@ class Quoter:
             ElementInteractionError: If the deductible cannot be set
         """
         try:
-            logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting deductible to 40,000")
+            logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting deductible to {deductible}")
             
-            # Locate and click deductible dropdown
-            deductible = self.wait.until(EC.presence_of_element_located((By.ID, ELEMENT_IDS['plan']['deductible_dropdown'])))
-            deductible.click()
+            if deductible == "38,000":
+                # Select 38,000 option
+                deductible_option = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, '//*[@id="ddlDeducible"]/option[5]'))
+                )
+                deductible_option.click()
             
-            # Select 40,000 option
-            deductible_option = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, f'//*[@id="ddlDeducible"]/option[{PLAN_CONFIG["deductible_option_index"]}]'))
-            )
-            deductible_option.click()
+            if deductible == "43,000":
+                # Select 43,000 option
+                deductible_option = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, '//*[@id="ddlDeducible"]/option[6]'))
+                )
+                deductible_option.click()           
             
         except Exception as e:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set deductible: {str(e)}")
@@ -364,6 +466,8 @@ class Quoter:
             # Locate and click checkbox
             unique_deductible = self.wait.until(EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['unique_deductible'])))
             unique_deductible.click()
+
+            self.browser_manager.pop_up_handler()
             
         except Exception as e:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to check 'Deducible único' checkbox: {str(e)}")
@@ -399,6 +503,22 @@ class Quoter:
                 
         except Exception as e:
             raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed to set coverage options {str(e)}")
+    
+    def _set_coinsurance(self, product, plan, age):
+        try:
+            logger.debug(f"[{product['product']}/{plan['name']}/Age {age}] Setting 'Coaseguro' to 10%")
+            
+            # Locate and click checkbox
+            coinsurance_option = self.wait.until(
+                EC.presence_of_element_located((By.XPATH, '//*[@id="ddlCoaseguro"]/option[2]'))
+            )
+            coinsurance_option.click()
+
+            self.browser_manager.pop_up_handler()
+            
+        except Exception as e:
+            raise ElementInteractionError(f"[{product['product']}/{plan['name']}/Age {age}] Failed set coinsurance checkbox: {str(e)}")
+
         
     def _set_coverage_options_flex(self, product, plan, age):
         """
@@ -543,18 +663,51 @@ class Quoter:
         Raises:
             NavigationError: If navigation back fails
         """
-        try:
-            first_back_button = self.wait.until(EC.element_to_be_clickable(
-                (By.ID, ELEMENT_IDS['plan']['back_button_1'])
-                ))
-            first_back_button.click()
-            
-            second_back_button = self.wait.until(EC.element_to_be_clickable(
-                (By.ID, ELEMENT_IDS['plan']['back_button_2'])
-                ))
-            second_back_button.click()
-            
-            logger.info("Successfully navigated back to start")
-            
-        except Exception as e:
-            raise NavigationError("Failed to navigate back to start") from e
+        max_attempts = 3
+        
+        for attempt in range(max_attempts):
+            try:
+                logger.debug(f"Navigation back attempt {attempt + 1}: Waiting for first back button...")
+                
+                # Wait a moment for any page processing to complete
+                time.sleep(1)
+                
+                # Use a longer wait for the first button
+                first_back_button = WebDriverWait(self.browser_manager.driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['back_button_1']))
+                )
+                
+                # Use JavaScript to scroll to and click the button for better reliability
+                self.browser_manager.driver.execute_script("arguments[0].scrollIntoView(true);", first_back_button)
+                self.browser_manager.driver.execute_script("arguments[0].click();", first_back_button)
+                
+                logger.debug("First back button clicked, waiting for second back button...")
+                
+                # Wait for any transitions after the first click
+                time.sleep(2)
+                
+                # Now wait for the second button
+                second_back_button = WebDriverWait(self.browser_manager.driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, ELEMENT_IDS['plan']['back_button_2']))
+                )
+                
+                # Again use JavaScript for more reliable clicking
+                self.browser_manager.driver.execute_script("arguments[0].scrollIntoView(true);", second_back_button)
+                self.browser_manager.driver.execute_script("arguments[0].click();", second_back_button)
+                
+                logger.info("Successfully navigated back to start")
+                return
+                
+            except Exception as e:
+                logger.warning(f"Navigation back attempt {attempt + 1} failed: {str(e)}")
+                
+                if attempt < max_attempts - 1:
+                    # Try a refresh to get to a clean state before next attempt
+                    try:
+                        self.browser_manager.driver.refresh()
+                        time.sleep(2)
+                    except:
+                        pass
+                else:
+                    # On last attempt, raise the error
+                    raise NavigationError(f"Failed to navigate back to start after {max_attempts} attempts: {str(e)}")

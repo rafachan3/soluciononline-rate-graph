@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 from config import DB_CONFIG
+from openpyxl.comments import Comment
 import logging
 import time
 
@@ -22,6 +23,7 @@ class DatabaseHandler:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 plan_name TEXT,
                 age INTEGER,
+                deductible TEXT,
                 suma_asegurada TEXT,
                 prima_basica_anual TEXT,
                 prima_beneficios_adicionales TEXT,
@@ -36,31 +38,34 @@ class DatabaseHandler:
         conn.commit()
         conn.close()
 
-    def insert_plan_data(self, plan_name, age, pricing_data):
+    def insert_plan_data(self, plan_name, age, pricing_data, deductible=None):
         """
         Insert new plan pricing data into the database.
         
         This method stores a complete set of pricing data for a specific plan and age.
-        It includes all the pricing components and a timestamp for when the data was collected.
+        It includes all the pricing components, deductible amount, and a timestamp 
+        for when the data was collected.
         
         Args:
             plan_name (str): Name of the insurance plan
             age (int): Age of the prospective insured
             pricing_data (dict): Dictionary containing all pricing components
+            deductible (str, optional): Deductible amount, if applicable
         """
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
 
-        # Insert the data along with current timestamp
+        # Insert the data along with current timestamp and deductible
         cursor.execute('''
             INSERT INTO plan_data (
-                plan_name, age, suma_asegurada, prima_basica_anual,
+                plan_name, age, deductible, suma_asegurada, prima_basica_anual,
                 prima_beneficios_adicionales, derecho_poliza, iva,
                 prima_neta_anual, primer_pago, fetch_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             plan_name,
             age,
+            deductible,
             pricing_data.get('Suma asegurada', ''),
             pricing_data.get('Prima básica anual', ''),
             pricing_data.get('Prima de beneficios adicionales anual', ''),
@@ -74,16 +79,13 @@ class DatabaseHandler:
         conn.commit()
         conn.close()
 
-    def get_latest_data(self, plan_name=None):
+    def get_latest_data(self, plan_name=None, deductible=None):
         """
         Retrieve the most recent data for a specific plan or all plans.
         
-        This method allows querying the latest pricing data, either for a 
-        specific plan or across all plans, sorted by collection date.
-        
         Args:
             plan_name (str, optional): Name of the plan to retrieve data for.
-                                      If None, retrieves data for all plans.
+            deductible (str, optional): Specific deductible amount to filter by.
         
         Returns:
             list: List of tuples containing the requested data rows
@@ -91,8 +93,15 @@ class DatabaseHandler:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
 
-        if plan_name:
-            # Get data for a specific plan
+        if plan_name and deductible:
+            # Get data for a specific plan and deductible
+            cursor.execute('''
+                SELECT * FROM plan_data 
+                WHERE plan_name = ? AND deductible = ?
+                ORDER BY fetch_date DESC
+            ''', (plan_name, deductible))
+        elif plan_name:
+            # Get data for a specific plan (any deductible)
             cursor.execute('''
                 SELECT * FROM plan_data 
                 WHERE plan_name = ? 
@@ -110,9 +119,9 @@ class DatabaseHandler:
         """
         Export all stored data to an Excel file for analysis.
         
-        This method exports the most recent data for each plan to a separate
-        sheet in an Excel workbook. This format facilitates easy analysis and
-        comparison across different plans and ages.
+        This method exports the most recent data for each plan+deductible combination
+        to a separate sheet in an Excel workbook. This format facilitates easy analysis
+        and comparison across different plans, deductibles, and ages.
         
         Args:
             filename (str, optional): Name of the Excel file to create.
@@ -124,28 +133,45 @@ class DatabaseHandler:
         start_time = time.time()
         conn = sqlite3.connect(self.db_name)
         
-        # Get unique plan names
+        # Get unique plan+deductible combinations
         cursor = conn.cursor()
-        cursor.execute('SELECT DISTINCT plan_name FROM plan_data')
-        plan_names = [row[0] for row in cursor.fetchall()]
+        cursor.execute('SELECT DISTINCT plan_name, deductible FROM plan_data')
+        plan_combinations = cursor.fetchall()
         
         # Create Excel writer
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            for plan_name in plan_names:
-                # Get latest data for each plan
+            for plan_name, deductible in plan_combinations:
+                # Generate a sheet name that includes both plan and deductible (if available)
+                if deductible:
+                    # Remove the thousand separator and just keep the number
+                    clean_deductible = deductible.replace(',', '')
+                    sheet_name = f"{plan_name.replace(' ', '_')}_{clean_deductible}"
+                else:
+                    sheet_name = plan_name.replace(' ', '_')
+                
+                # Ensure sheet name is valid (Excel has a 31 character limit)
+                if len(sheet_name) > 31:
+                    sheet_name = sheet_name[:31]
+                
+                # Get latest data for this plan+deductible combination
                 query = f'''
                     SELECT age, suma_asegurada, prima_basica_anual,
                            prima_beneficios_adicionales, derecho_poliza,
                            iva, prima_neta_anual, primer_pago
                     FROM plan_data
-                    WHERE plan_name = ?
+                    WHERE plan_name = ? AND (deductible = ? OR (deductible IS NULL AND ? IS NULL))
                     ORDER BY fetch_date DESC
                 '''
-                df = pd.read_sql_query(query, conn, params=(plan_name,))
+                df = pd.read_sql_query(query, conn, params=(plan_name, deductible, deductible))
                 
                 # Write to Excel
-                sheet_name = plan_name.replace(' ', '_')
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Add a note about the deductible in cell A1
+                if deductible:
+                    worksheet = writer.sheets[sheet_name]
+                    comment = Comment(f"Deducible Aplicado: {deductible}", "System")
+                    worksheet.cell(row=1, column=1).comment = comment
         
         conn.close()
         export_time = time.time() - start_time
